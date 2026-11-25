@@ -1,0 +1,10 @@
+{
+  "_说明": "放到 exe 同目录改名 vcpmap.json 即生效。code 可写十进制或 0x 十六进制。",
+  "ZOWIE": {
+    "beqexp": { "code": "0x7A", "note": "黑位均衡器，XL2566K 实测" },
+    "dyacexp": { "code": "0x4D", "note": "DyAc：0=关 1=高 2=高级" }
+  },
+  "ASUS": {
+    "trace": { "code": "0xE0", "uimax": 10, "note": "Trace Free 档位数按型号自适应" }
+  }
+}

@@ -1,0 +1,51 @@
+// MonitorOSD 应用资源：图标 + 版本信息（资源管理器「属性→详细信息」可见）
+// 注意：rc.exe 默认不含 winver.h 的宏，缺的常量在这里补
+#define VS_VERSION_INFO 1
+#define VOS_NT_WINDOWS32 0x00040004L
+#define VFT_APP 0x00000001L
+
+1 ICON "app.ico"
+
+#ifndef APP_VERSION
+#define APP_VERSION "1.6.6"
+#endif
+// 数字版本（FILEVERSION）不能是字符串，构建时用 /d 分开注入；缺省按 1.6.4
+// 注意：这三处必须与 main.cpp 的 APP_VERSION 同步，否则资源管理器看到的版本会与程序内不一致
+#ifndef APP_VER_MAJ
+#define APP_VER_MAJ 1
+#endif
+#ifndef APP_VER_MIN
+#define APP_VER_MIN 6
+#endif
+#ifndef APP_VER_PAT
+#define APP_VER_PAT 6
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VER_MAJ,APP_VER_MIN,APP_VER_PAT,0
+ PRODUCTVERSION APP_VER_MAJ,APP_VER_MIN,APP_VER_PAT,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName",      "咸鱼工作室"
+            VALUE "FileDescription",  "金橙电竞-显示器控制"
+            VALUE "FileVersion",      APP_VERSION
+            VALUE "InternalName",     "MonitorOSD"
+            VALUE "OriginalFilename", "金橙电竞-显示器控制.exe"
+            VALUE "ProductName",      "金橙电竞-显示器控制 (MonitorOSD)"
+            VALUE "ProductVersion",   APP_VERSION
+            VALUE "LegalCopyright",   "Copyright (C) 2026 咸鱼工作室"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

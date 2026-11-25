@@ -1,0 +1,211 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "MonitorOSD 界面设计令牌 v1.0 — 取自设计稿 ardot.tencent.com/file/735711615067376 真实节点属性。用于生成 CSS 变量或 C# 常量。",
+
+  "color": {
+    "bg": {
+      "window":     { "$type": "color", "$value": "#0A0A0B", "$description": "窗口底 / 置灰文案" },
+      "statusbar":  { "$type": "color", "$value": "#0E0E10", "$description": "底部状态栏" }
+    },
+    "surface": {
+      "group": { "$type": "color", "$value": "#121214", "$description": "参数分组卡 / 下拉 / 次级按钮底" },
+      "card":  { "$type": "color", "$value": "#141417", "$description": "显示器信息卡" },
+      "sub":   { "$type": "color", "$value": "#1B1B1F", "$description": "次级按钮 / 分段未选项 / 徽标底" },
+      "hover": { "$type": "color", "$value": "#232329", "$description": "次级按钮与分段 Hover 底" },
+      "cardHover": { "$type": "color", "$value": "#1A1A1E", "$description": "显示器卡 Hover 底" }
+    },
+    "line": {
+      "strong":  { "$type": "color", "$value": "#27272A", "$description": "滑轨 / 卡内分隔线" },
+      "subtle":  { "$type": "color", "$value": "#1F1F23", "$description": "标题栏 / 状态栏分隔线" },
+      "outline": { "$type": "color", "$value": "#3F3F46", "$description": "未选复选框内描边" }
+    },
+    "text": {
+      "primary":   { "$type": "color", "$value": "#FAFAFA", "$description": "窗口标题 / 分组标题 / 激活页签 / 次级按钮字 / 型号" },
+      "secondary": { "$type": "color", "$value": "#E4E4E7", "$description": "参数标签 / 选项文字 / 详细信息值" },
+      "tertiary":  { "$type": "color", "$value": "#A1A1AA", "$description": "参数数值 / 未选页签与分段 / 分辨率行" },
+      "muted":     { "$type": "color", "$value": "#71717A", "$description": "详细信息标签 / 置灰文案 / 热键 / 窗口按钮" },
+      "disabled":  { "$type": "color", "$value": "#52525B", "$description": "禁用态文字" },
+      "onAccent":  { "$type": "color", "$value": "#0A0A0B", "$description": "所有强调色填充面上的文字（对比度 5.26:1）" },
+      "onLogo":    { "$type": "color", "$value": "#FFFFFF", "$description": "品牌 Logo 块内的字母色" }
+    },
+    "semantic": {
+      "accent":      { "$type": "color", "$value": "#F04438", "$description": "默认强调色 — 可由品牌绑定或用户设置覆盖" },
+      "accentHover": { "$type": "color", "$value": "#F15B50", "$description": "主按钮 Hover（accent 提亮 8%）" },
+      "accentGlow":  { "$type": "color", "$value": "#6E2A24", "$description": "accent 的派生光晕色" },
+      "success":     { "$type": "color", "$value": "#10B981", "$description": "DDC/CI 正常 / 向导就绪" },
+      "danger":      { "$type": "color", "$value": "#F43F5E", "$description": "恢复出厂等破坏性操作" }
+    },
+    "accentOption": {
+      "red":    { "$type": "color", "$value": "#F04438", "$description": "默认" },
+      "gold":   { "$type": "color", "$value": "#F5B913" },
+      "cyan":   { "$type": "color", "$value": "#22D3EE" },
+      "green":  { "$type": "color", "$value": "#34D399" },
+      "purple": { "$type": "color", "$value": "#A78BFA" }
+    }
+  },
+
+  "gradient": {
+    "ambient": {
+      "$type": "gradient",
+      "$description": "背景氛围光 — 45°（右上→左下），铺满窗口，层级最底",
+      "angle": 45,
+      "transform": [[1, 1, 0], [-1, 1, 0.5]],
+      "size": "1440x960",
+      "$stops": [
+        { "position": 0.0,  "alpha": 0.50, "color": "#F04438" },
+        { "position": 0.55, "alpha": 0.07, "color": "#F04438" },
+        { "position": 1.0,  "alpha": 0.00, "color": "#F04438" }
+      ],
+      "$winforms": {
+        "angle": 135,
+        "colors": ["#80FFF026", "#12FFF026", "#00FFF026"],
+        "positions": [0.0, 0.55, 1.0]
+      },
+      "$rule": "换肤时 color 用 accentGlow 派生色，起始 alpha 可放宽到 0.5–0.7"
+    }
+  },
+
+  "shadow": {
+    "cardSelected": {
+      "$type": "shadow",
+      "$description": "选中的显示器卡 — 内发光 ×2 + 外发光 ×1 叠加",
+      "$value": [
+        { "type": "INNER_SHADOW", "color": "#F04438", "alpha": 0.70, "radius": 3,  "spread": 0 },
+        { "type": "INNER_SHADOW", "color": "#F04438", "alpha": 0.30, "radius": 8,  "spread": 0 },
+        { "type": "DROP_SHADOW",  "color": "#F04438", "alpha": 0.35, "radius": 20, "spread": 0, "offset": { "x": 0, "y": 0 }, "showShadowBehindNode": true }
+      ]
+    },
+    "cardUnselected": { "$type": "shadow", "$value": [], "$description": "未选中的卡无任何发光" }
+  },
+
+  "font": {
+    "family": {
+      "ui":     { "$type": "fontFamily", "$value": "Noto Sans SC",   "$fallback": "Microsoft YaHei UI, sans-serif" },
+      "latin":  { "$type": "fontFamily", "$value": "Inter",          "$fallback": "Segoe UI, sans-serif" },
+      "mono":   { "$type": "fontFamily", "$value": "JetBrains Mono", "$fallback": "Consolas, monospace" }
+    },
+    "size": {
+      "badge":     { "$type": "dimension", "$value": "10px" },
+      "detail":    { "$type": "dimension", "$value": "11px" },
+      "segment":   { "$type": "dimension", "$value": "12px" },
+      "body":      { "$type": "dimension", "$value": "13px" },
+      "resolution":{ "$type": "dimension", "$value": "15px" },
+      "model":     { "$type": "dimension", "$value": "20px" },
+      "logo":      { "$type": "dimension", "$value": "22px" },
+      "refresh":   { "$type": "dimension", "$value": "24px" }
+    },
+    "style": {
+      "windowTitle": { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "13px", "fontWeight": 500 } },
+      "tabActive":   { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "13px", "fontWeight": 500 } },
+      "tabIdle":     { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "13px", "fontWeight": 400 } },
+      "groupTitle":  { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "13px", "fontWeight": 600 } },
+      "paramLabel":  { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "13px", "fontWeight": 400 } },
+      "segment":     { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "12px", "fontWeight": 400 } },
+      "segmentOn":   { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "12px", "fontWeight": 500 } },
+      "paramValue":  { "$type": "typography", "$value": { "fontFamily": "JetBrains Mono", "fontSize": "13px", "fontWeight": 400 } },
+      "model":       { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "20px", "fontWeight": 600 } },
+      "refreshRate": { "$type": "typography", "$value": { "fontFamily": "JetBrains Mono", "fontSize": "24px", "fontWeight": 700 } },
+      "resolution":  { "$type": "typography", "$value": { "fontFamily": "JetBrains Mono", "fontSize": "15px", "fontWeight": 400 } },
+      "brandName":   { "$type": "typography", "$value": { "fontFamily": "Inter", "fontSize": "11px", "fontWeight": 500 } },
+      "logoLetter":  { "$type": "typography", "$value": { "fontFamily": "Inter", "fontSize": "22px", "fontWeight": 700 } },
+      "detailLabel": { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "11px", "fontWeight": 400 } },
+      "detailValue": { "$type": "typography", "$value": { "fontFamily": "JetBrains Mono", "fontSize": "11px", "fontWeight": 400 } },
+      "badge":       { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "10px", "fontWeight": 500 } },
+      "statusBar":   { "$type": "typography", "$value": { "fontFamily": "Noto Sans SC", "fontSize": "12px", "fontWeight": 400 } },
+      "hotkey":      { "$type": "typography", "$value": { "fontFamily": "JetBrains Mono", "fontSize": "12px", "fontWeight": 400 } }
+    }
+  },
+
+  "radius": {
+    "window":    { "$type": "dimension", "$value": "12px", "$description": "窗口本体" },
+    "card":      { "$type": "dimension", "$value": "12px", "$description": "所有卡片" },
+    "logo":      { "$type": "dimension", "$value": "10px", "$description": "品牌 Logo 底块 44×44" },
+    "button":    { "$type": "dimension", "$value": "8px",  "$description": "按钮" },
+    "control":   { "$type": "dimension", "$value": "6px",  "$description": "分段项 / 强调色块 / 下拉" },
+    "small":     { "$type": "dimension", "$value": "4px",  "$description": "复选框 / 主副徽标" },
+    "track":     { "$type": "dimension", "$value": "3px",  "$description": "滑条轨道与填充" },
+    "underline": { "$type": "dimension", "$value": "2px",  "$description": "页签激活下划线 68×3" }
+  },
+
+  "space": {
+    "xs":  { "$type": "dimension", "$value": "4px" },
+    "s":   { "$type": "dimension", "$value": "6px" },
+    "sm":  { "$type": "dimension", "$value": "8px" },
+    "m":   { "$type": "dimension", "$value": "12px" },
+    "md":  { "$type": "dimension", "$value": "16px" },
+    "l":   { "$type": "dimension", "$value": "24px" },
+    "xl":  { "$type": "dimension", "$value": "28px" },
+    "xxl": { "$type": "dimension", "$value": "32px" }
+  },
+
+  "size": {
+    "canvas":        { "$type": "dimension", "$value": "1440x960" },
+    "minWidth":      { "$type": "dimension", "$value": "1180px" },
+    "titleBar":      { "$type": "dimension", "$value": "1440x44" },
+    "statusBar":     { "$type": "dimension", "$value": "1440x44" },
+    "monitorCard":   { "$type": "dimension", "$value": "184x392" },
+    "groupCardWidth":{ "$type": "dimension", "$value": "1168px" },
+    "sliderTrack":   { "$type": "dimension", "$value": "700x6" },
+    "sliderKnob":    { "$type": "dimension", "$value": "14px" },
+    "segment":       { "$type": "dimension", "$value": "68x28" },
+    "segmentNarrow": { "$type": "dimension", "$value": "56x28" },
+    "checkbox":      { "$type": "dimension", "$value": "16px" },
+    "badge":         { "$type": "dimension", "$value": "24x16" },
+    "logoBox":       { "$type": "dimension", "$value": "44x44" },
+    "buttonSecondary": { "$type": "dimension", "$value": "120x34" },
+    "buttonPrimary":   { "$type": "dimension", "$value": "228x34" },
+    "swatch":          { "$type": "dimension", "$value": "20x20" },
+    "rowHeight":       { "$type": "dimension", "$value": "56px" },
+    "detailRowGap":    { "$type": "dimension", "$value": "28px" },
+    "tabGap":          { "$type": "dimension", "$value": "56px" },
+    "tabUnderlineOverflow": { "$type": "dimension", "$value": "8px", "$description": "下划线宽度 = 文字宽 + 16（左右各溢出 8）" }
+  },
+
+  "layout": {
+    "$description": "关键锚点坐标（1440×960 画布）",
+    "leftColumn":  { "$type": "dimension", "$value": "16px",   "$description": "左栏 x 起点" },
+    "rightColumn": { "$type": "dimension", "$value": "244px",  "$description": "分组标题 x / 右栏内容起点" },
+    "cardX":       { "$type": "dimension", "$value": "234px",  "$description": "分组卡片 x" },
+    "labelX":      { "$type": "dimension", "$value": "268px",  "$description": "参数标签 x" },
+    "controlX":    { "$type": "dimension", "$value": "430px",  "$description": "控件列 x" },
+    "valueRight":  { "$type": "dimension", "$value": "1389px", "$description": "数值列右对齐边界" },
+    "actionsRight":{ "$type": "dimension", "$value": "1416px", "$description": "行动按钮右边缘" },
+    "actionsY":    { "$type": "dimension", "$value": "60px",   "$description": "行动按钮垂直基线" }
+  },
+
+  "brandAccent": {
+    "$description": "EDID 厂商 ID → 品牌强调色。解析优先级：手动 > 自动(品牌) > 默认红。glow 为派生结果，运行时由 accent 经 HSV(S×0.5, V×0.35) 实时计算。",
+    "fallback": { "accent": "#F04438", "glow": "#6E2A24" },
+    "map": {
+      "BNQ": { "brand": "卓威 ZOWIE / BenQ",       "accent": "#F04438", "glow": "#6E2A24" },
+      "ASU": { "brand": "华硕 ASUS / ROG",         "accent": "#F04438", "glow": "#6E2A24" },
+      "HKC": { "brand": "HKC 惠科",                "accent": "#F04438", "glow": "#6E2A24" },
+      "AOC": { "brand": "AOC",                    "accent": "#FF5A47", "glow": "#7A2F28" },
+      "AGN": { "brand": "爱攻 AGON",               "accent": "#FF5A47", "glow": "#7A2F28" },
+      "ANT": { "brand": "蚂蚁电竞 ANTGAMER",        "accent": "#FF7A3D", "glow": "#7A3D20" },
+      "XMI": { "brand": "小米",                    "accent": "#FF8A3D", "glow": "#7A4520" },
+      "TTN": { "brand": "泰坦军团 TITAN ARMY",      "accent": "#4C8DFF", "glow": "#24477E" },
+      "ALW": { "brand": "外星人 ALIENWARE",         "accent": "#C9D4DD", "glow": "#565C63" },
+      "DEL": { "brand": "戴尔 DELL",                "accent": "#3B82F6", "glow": "#22416E" },
+      "HWP": { "brand": "惠普 HP",                  "accent": "#38BDF8", "glow": "#1A5570" },
+      "HEC": { "brand": "华为 HUAWEI",              "accent": "#E8483C", "glow": "#6E2A26" }
+    },
+    "config": {
+      "accentMode": { "$type": "string", "$value": "auto", "$enum": ["auto", "manual"], "$description": "auto=跟随品牌；manual=用户手动指定" }
+    }
+  },
+
+  "behavior": {
+    "$description": "必须遵守的交互行为约定",
+    "rules": [
+      "强调色填充面上的文字一律使用 color.text.onAccent（#0A0A0B），禁止白字",
+      "页签激活下划线宽度 = 文字宽 + 16，水平居中于文字，禁止写死 68",
+      "不可调参数禁止直接隐藏：保留原位 + 降色 + 附原因文案",
+      "显示器卡选中 = 外发光 + 内发光 + 刷新率转强调色，三重信号",
+      "DDC/CI 断开时状态栏必须显式提示「未检测到显示器」，严禁静默失败",
+      "主按钮「一键还原基准」全站唯一，其他操作一律使用中性色",
+      "换肤时背景渐变与卡片发光使用派生光晕色，不使用纯强调色",
+      "数值列必须使用等宽字体，避免滑条拖动时文字抖动"
+    ]
+  }
+}

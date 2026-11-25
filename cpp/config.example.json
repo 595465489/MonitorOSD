@@ -1,0 +1,16 @@
+{
+  "AutoRestoreMinutes": 0,
+  "RestoreOnStart": false,
+  "RestoreOnExit": false,
+  "AutoStart": false,
+  "MinimizeToTray": true,
+  "Skin": "auto",
+  "AccentMode": "manual",
+  "ManualAccent": "#F04438",
+  "UpdateBase": "",
+  "UpdateChannel": "latest",
+  "CheckUpdateOnStart": true,
+  "UpdateCheckHours": 6,
+  "DebugBrand": 0,
+  "TitlePrefix": ""
+}

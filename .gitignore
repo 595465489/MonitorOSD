@@ -1,0 +1,65 @@
+# ============================================================
+#  MonitorOSD / 显示器控制 —— 公开仓库忽略规则
+#  原则：源码、设计规范、字体、服务端脚本进仓库；
+#        构建产物、运行数据、本机隐私、内部资料一律不进。
+# ============================================================
+
+# ---------- 构建产物 / 中间文件 ----------
+cpp/*.exe
+cpp/*.obj
+cpp/*.res
+cpp/*.pdb
+cpp/*.ilk
+cpp/*.exp
+cpp/*.lib
+cpp/*.map
+cpp/*.bak
+cpp/OUT
+cpp/build_log.txt
+main.obj
+
+# ---------- 运行时数据（本机显示器档案、日志、缓存）----------
+# 这些文件由程序在本机生成，含本机显示器序列号/工作记录，绝不公开
+cpp/config.json
+cpp/profiles.json
+cpp/ddccache.json
+cpp/ddccache.json.bak
+cpp/log.txt
+cpp/boot_dbg.txt
+cpp/scan_*.txt
+boot_dbg.txt
+*.log
+
+# ---------- 发布成品与内部打包脚本（不进源码仓库）----------
+发布/
+release/
+publish/
+*.zip
+make_release.ps1
+
+# ---------- 编辑器 / AI 工具私有记录 ----------
+.workbuddy/
+.zcodeignore
+.trae/
+.vscode/
+.idea/
+
+# ---------- 内部资料（本机序列号、第三方逆向分析、内部评审）----------
+docs/detect.txt
+docs/校准日志-样例.txt
+cpp/docs/MonitorTest逆向分析报告.md
+项目分析报告.md
+项目全量分析报告.md
+项目全量分析-2026-11-13.md
+增量分析-2026-11-24.md
+UI交互层缺陷分析.md
+更新说明-*.md
+
+# ---------- 字体源文件与内部工具（体积大 / 含本机路径）----------
+fonts_full/
+Tools/
+img/
+
+# ---------- 更新服务器联调残留 ----------
+cpp/server/_test_feedback/
+cpp/server/_dummy_pkg.exe

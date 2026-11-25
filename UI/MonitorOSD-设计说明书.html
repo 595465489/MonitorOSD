@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MonitorOSD 界面设计说明书 v1.0</title>
+<style>
+  :root{
+    --bg:#0A0A0B; --sb:#0E0E10; --grp:#121214; --card:#141417; --sub:#1B1B1F;
+    --ln-s:#1F1F23; --ln:#27272A; --ln-x:#3F3F46;
+    --t1:#FAFAFA; --t2:#E4E4E7; --t3:#A1A1AA; --t4:#71717A; --on-acc:#0A0A0B;
+    --acc:#F04438; --ok:#10B981; --danger:#F43F5E;
+    --acc-glow:#6E2A24;
+    --mono:"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","Noto Sans SC",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#08080A;color:var(--t2);font-family:var(--ui);font-size:14px;line-height:1.7;
+       -webkit-font-smoothing:antialiased}
+  a{color:var(--acc);text-decoration:none}
+  code,.mono{font-family:var(--mono);font-size:.92em}
+  code{background:#1B1B1F;border:1px solid #27272A;border-radius:4px;padding:1px 5px;color:var(--t2)}
+  .wrap{display:flex;max-width:1520px;margin:0 auto;gap:0}
+
+  /* ---------- nav ---------- */
+  nav{width:246px;flex:0 0 246px;position:sticky;top:0;height:100vh;overflow-y:auto;
+      border-right:1px solid var(--ln-s);padding:30px 0 60px;background:#08080A}
+  nav .brand{display:flex;align-items:center;gap:10px;padding:0 22px 22px}
+  nav .logo{width:34px;height:34px;border-radius:9px;background:var(--acc);color:#fff;
+            display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px}
+  nav .brand b{display:block;color:var(--t1);font-size:13px;letter-spacing:.2px}
+  nav .brand span{display:block;color:var(--t4);font-size:11px}
+  nav a{display:block;padding:7px 22px;color:var(--t3);font-size:12.5px;border-left:2px solid transparent}
+  nav a:hover{color:var(--t1);background:#101012}
+  nav a.h{padding-left:22px;color:var(--t4);font-size:11px;letter-spacing:.6px;text-transform:uppercase;
+          margin-top:14px;pointer-events:none;font-weight:600}
+
+  main{flex:1;min-width:0;padding:44px 56px 120px;max-width:1120px}
+
+  /* ---------- hero ---------- */
+  .hero{border:1px solid var(--ln);border-radius:16px;padding:34px 36px;background:
+    linear-gradient(135deg,rgba(240,68,56,.18) 0%,rgba(240,68,56,.05) 38%,rgba(240,68,56,0) 72%),
+    var(--grp);position:relative;overflow:hidden}
+  .hero:after{content:"";position:absolute;inset:0;background:
+    radial-gradient(680px 300px at 96% -30%,rgba(240,68,56,.30),transparent 70%);pointer-events:none}
+  .hero h1{margin:0 0 6px;font-size:27px;color:var(--t1);letter-spacing:-.2px}
+  .hero .sub{color:var(--t3);font-size:13.5px;margin-bottom:20px}
+  .kv{display:flex;flex-wrap:wrap;gap:10px 28px;position:relative;z-index:1}
+  .kv div{font-size:12px;color:var(--t4)}
+  .kv b{color:var(--t2);font-weight:500}
+  .pill{display:inline-block;background:var(--acc);color:var(--on-acc);font-size:11px;font-weight:600;
+        border-radius:999px;padding:3px 10px;margin-right:6px}
+
+  /* ---------- sections ---------- */
+  section{margin-top:52px;scroll-margin-top:24px}
+  h2{font-size:19px;color:var(--t1);margin:0 0 4px;padding-bottom:12px;border-bottom:1px solid var(--ln-s);
+     display:flex;align-items:baseline;gap:10px}
+  h2 .n{color:var(--acc);font-family:var(--mono);font-size:15px;font-weight:700}
+  h3{font-size:14.5px;color:var(--t1);margin:30px 0 10px}
+  h4{font-size:13px;color:var(--t2);margin:20px 0 8px;font-weight:600}
+  p{margin:9px 0;color:var(--t3)}
+  ul,ol{margin:9px 0;padding-left:20px;color:var(--t3)}
+  li{margin:5px 0}
+  strong{color:var(--t2)}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:12.5px}
+  th{text-align:left;color:var(--t4);font-weight:600;font-size:11px;letter-spacing:.4px;
+     text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--ln);background:#101013}
+  td{padding:8px 12px;border-bottom:1px solid var(--ln-s);color:var(--t3);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td b{color:var(--t2);font-weight:500}
+  .t-mono td:first-child,.t-mono td:nth-child(2){font-family:var(--mono);color:var(--t2)}
+  .tbl{border:1px solid var(--ln-s);border-radius:10px;overflow:hidden;margin:14px 0}
+  .tbl table{margin:0}
+
+  /* ---------- swatches ---------- */
+  .sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;margin:16px 0}
+  .sw .i{border:1px solid var(--ln-s);border-radius:10px;overflow:hidden;background:#101013}
+  .sw .c{height:54px}
+  .sw .m{padding:8px 11px}
+  .sw .m b{display:block;color:var(--t2);font-size:11.5px;font-weight:600}
+  .sw .m span{display:block;color:var(--t4);font-family:var(--mono);font-size:10.5px;margin-top:2px}
+  .sw .m em{display:block;color:var(--t4);font-size:10px;font-style:normal;margin-top:3px;line-height:1.45}
+
+  /* ---------- callouts ---------- */
+  .note,.warn,.rule{border-radius:10px;padding:13px 16px;margin:14px 0;font-size:12.5px;line-height:1.65}
+  .note{background:rgba(240,68,56,.07);border:1px solid rgba(240,68,56,.28);color:var(--t2)}
+  .warn{background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.30);color:var(--t2)}
+  .rule{background:#101013;border:1px solid var(--ln-s);color:var(--t3)}
+  .note b,.warn b{color:var(--t1)}
+  .rule b{color:var(--t2)}
+
+  /* ---------- spec block ---------- */
+  pre{background:#101013;border:1px solid var(--ln-s);border-radius:10px;padding:15px 17px;overflow-x:auto;
+      font-family:var(--mono);font-size:11.5px;line-height:1.75;color:var(--t3);margin:14px 0}
+  pre b{color:var(--acc);font-weight:400}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:1180px){.grid2{grid-template-columns:1fr}}
+
+  /* ---------- live specimens ---------- */
+  .stage{background:var(--bg);border:1px solid var(--ln-s);border-radius:12px;padding:22px;margin:14px 0;
+         position:relative;overflow:hidden}
+  .stage .lbl{position:absolute;top:0;right:0;background:#17171A;border-left:1px solid var(--ln-s);
+              border-bottom:1px solid var(--ln-s);border-radius:0 11px 0 8px;padding:4px 10px;
+              font-family:var(--mono);font-size:10px;color:var(--t4)}
+  .s-tabbar{display:flex;gap:56px;position:relative}
+  .s-tab{font-size:13px;padding-bottom:9px;position:relative}
+  .s-tab.on{color:var(--t1);font-weight:500}
+  .s-tab.off{color:var(--t3)}
+  .s-tab.on:after{content:"";position:absolute;left:-8px;right:-8px;bottom:0;height:3px;
+                  border-radius:2px;background:var(--acc)}
+  .s-btns{display:flex;gap:12px;justify-content:flex-end}
+  .s-btn{height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+         font-size:13px;border:none}
+  .s-btn.sec{width:120px;background:var(--sub);color:var(--t1);font-weight:500}
+  .s-btn.pri{width:228px;background:var(--acc);color:var(--on-acc);font-weight:600}
+  .s-seg{height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+         font-size:12px;background:var(--sub);color:var(--t3);padding:0 12px}
+  .s-seg.on{background:var(--acc);color:var(--on-acc);font-weight:500}
+  .s-row{display:flex;align-items:center;gap:14px;padding:11px 0}
+  .s-track{flex:1;height:6px;border-radius:3px;background:var(--ln);position:relative}
+  .s-track i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--acc)}
+  .s-track u{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--t1);
+             transform:translate(-50%,-50%)}
+  .s-num{font-family:var(--mono);font-size:13px;color:var(--t3);min-width:66px;text-align:right}
+  .s-cbx{width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+         font-size:10px}
+  .s-cbx.on{background:var(--acc);color:var(--on-acc)}
+  .s-cbx.off{background:var(--sub);box-shadow:inset 0 0 0 1px var(--ln-x)}
+
+  /* ---------- mock layout ---------- */
+  .mock{background:var(--bg);border:1px solid var(--ln-s);border-radius:12px;padding:16px;margin:16px 0}
+  .mock .frame{width:100%;aspect-ratio:1440/960;border-radius:10px;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,rgba(240,68,56,.5) 0%,rgba(240,68,56,.07) 55%,transparent 100%),
+    var(--bg);font-size:0}
+  .mock .bx{position:absolute;border-radius:4px;font-size:10px;color:var(--t3);
+            display:flex;align-items:center;padding:0 6px;overflow:hidden;white-space:nowrap}
+  .lbl-a{background:rgba(240,68,56,.12);border:1px solid rgba(240,68,56,.45);color:#FFB4AC}
+  .lbl-b{background:#1B1B1F;border:1px solid var(--ln);color:var(--t3)}
+  .lbl-c{background:#121214;border:1px solid var(--ln-s);color:var(--t4)}
+  .mock .cap{color:var(--t4);font-size:11px;margin-top:10px;font-family:var(--mono)}
+
+  .foot{margin-top:70px;padding-top:22px;border-top:1px solid var(--ln-s);color:var(--t4);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <div class="brand">
+    <div class="logo">M</div>
+    <div><b>MonitorOSD</b><span>界面设计说明书</span></div>
+  </div>
+  <a href="#s1">1 · 项目概述</a>
+  <a href="#s2">2 · 设计原则</a>
+  <a href="#s3">3 · 画布与栅格</a>
+  <a href="#s4">4 · 色彩系统</a>
+  <a href="#s5">5 · 字体系统</a>
+  <a href="#s6">6 · 圆角与描边</a>
+  <a href="#s7">7 · 页面结构</a>
+  <a href="#s8">8 · 组件规范</a>
+  <a href="#s9">9 · 状态与交互</a>
+  <a href="#s10">10 · 品牌色绑定</a>
+  <a href="#s11">11 · 内容清单</a>
+  <a href="#s12">12 · 落地建议</a>
+  <a href="#s13">13 · 交付物</a>
+</nav>
+
+<main>
+
+<div class="hero">
+  <h1>MonitorOSD 界面设计说明书</h1>
+  <div class="sub">网吧 / 电竞馆显示器集中控制工具 · 深色黑红 OSD 主题</div>
+  <div class="kv">
+    <div>版本 <b>v1.0</b></div>
+    <div>画布 <b>1440 × 960 @1x</b></div>
+    <div>页面 <b>2 屏（参数设置 / 系统管理）</b></div>
+    <div>默认强调色 <b>#F04438</b></div>
+    <div>设计稿 <b>ardot file 735711615067376</b></div>
+  </div>
+</div>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+<h2><span class="n">01</span>项目概述</h2>
+
+<p><strong>MonitorOSD</strong> 是一款 C# WinForms 单文件应用（约 70 KB，免安装直接运行），通过 <code>DDC/CI</code>（<code>dxva2.dll</code>）直接控制显示器硬件参数，不依赖厂商驱动与 OSD 菜单。</p>
+
+<div class="tbl"><table>
+<tr><th style="width:120px">维度</th><th>说明</th></tr>
+<tr><td><b>核心场景</b></td><td>顾客把显示器参数调乱 → 网管一键还原到「基准」配置，全程 &lt; 2 秒</td></tr>
+<tr><td><b>使用环境</b></td><td>网吧 / 电竞馆前厅或机房，环境光偏暗，操作者非专业用户</td></tr>
+<tr><td><b>目标机型</b></td><td>卓威 ZOWIE XL2566K / XL2746K、华硕 ROG·TUF、AOC / 爱攻 等电竞屏</td></tr>
+<tr><td><b>技术栈</b></td><td>C# WinForms · GDI+ 自绘 · 单文件发布 · 目标 Windows 10/11</td></tr>
+</table></div>
+
+<p>界面只有两个页面，用顶部页签切换：<strong>参数设置</strong>（日常调节）与<strong>系统管理</strong>（还原策略、维护、软件设置）。不做多级菜单、不做向导式流程——网管需要在 3 秒内找到「一键还原基准」。</p>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+<h2><span class="n">02</span>设计原则</h2>
+
+<div class="rule"><b>① 状态一眼可辨。</b>当前选中的显示器、当前激活页签、DDC/CI 连接状态，各自固定在唯一位置，靠颜色与发光表达，不靠文字提示。</div>
+<div class="rule"><b>② 主操作唯一且醒目。</b>整屏只有一个高饱和强调色实心按钮——「一键还原基准」。其余操作为中性色，绝不与它抢视觉。</div>
+<div class="rule"><b>③ 品牌自适应。</b>强调色跟随显示器品牌（见第 10 节），同一套版式承载 ZOWIE 的红、外星人的银白、泰坦军团的蓝。</div>
+<div class="rule"><b>④ 深色为主，红仅作点缀。</b>底色近黑，红色以「大范围浅渐变 + 局部实心」两种浓度出现：背景渐变负责氛围，前景实心负责指引。</div>
+<div class="rule"><b>⑤ 置灰不隐藏。</b>硬件不支持或依赖关系未满足的参数<strong>保留在原位</strong>，降色并附一句原因文案，杜绝「找不到」。</div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+<h2><span class="n">03</span>画布与栅格</h2>
+
+<div class="tbl"><table>
+<tr><th style="width:180px">项目</th><th>数值</th></tr>
+<tr><td>基准画布</td><td><b>1440 × 960</b> @1x（窗口圆角 <code>12</code>）</td></tr>
+<tr><td>标题栏</td><td>y <code>0 – 44</code>，高 <b>44</b>，底部 1px <code>#1F1F23</code> 分隔线</td></tr>
+<tr><td>内容区</td><td>y <code>44 – 916</code></td></tr>
+<tr><td>状态栏</td><td>y <code>916 – 960</code>，高 <b>44</b>，顶部 1px <code>#1F1F23</code> 分隔线</td></tr>
+<tr><td>左栏（显示器信息）</td><td>x <code>16 – 200</code>，卡宽 <b>184</b>，卡内左右内边距 <b>12</b></td></tr>
+<tr><td>右栏（功能区）</td><td>分组标题 x <code>244</code>；分组卡片 x <code>234 / 244</code>，宽 <b>1168</b>；右边距 <b>28</b></td></tr>
+<tr><td>间距令牌</td><td><code>4 · 6 · 8 · 12 · 16 · 24 · 28 · 32</code>（8 的倍数为主）</td></tr>
+<tr><td>纵向节奏</td><td>分组标题(19) → 8 → 分组卡片 → 32 → 下一分组标题</td></tr>
+</table></div>
+
+<div class="note"><b>为什么要 1440×960 这个「不太标准」的尺寸？</b>网管机普遍是 1920×1080 单屏或双屏，960 高留出任务栏与若干余量，窗口居中后上下对称；同时 1440 宽刚好放下 7 列参数控件而无需横向滚动。窗口需支持自由缩放，缩放时<strong>左栏定宽、右栏拉伸</strong>（滑条长度随之变化），最小宽度建议 <b>1180</b>。</div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+<h2><span class="n">04</span>色彩系统</h2>
+
+<h3>4.1 中性色阶</h3>
+<div class="sw">
+  <div class="i"><div class="c" style="background:#0A0A0B"></div><div class="m"><b>bg-window</b><span>#0A0A0B</span><em>窗口底 / 置灰文案</em></div></div>
+  <div class="i"><div class="c" style="background:#0E0E10"></div><div class="m"><b>bg-statusbar</b><span>#0E0E10</span><em>底部状态栏</em></div></div>
+  <div class="i"><div class="c" style="background:#121214"></div><div class="m"><b>surface-group</b><span>#121214</span><em>参数分组卡 / 下拉底</em></div></div>
+  <div class="i"><div class="c" style="background:#141417"></div><div class="m"><b>surface-card</b><span>#141417</span><em>显示器信息卡</em></div></div>
+  <div class="i"><div class="c" style="background:#1B1B1F"></div><div class="m"><b>surface-sub</b><span>#1B1B1F</span><em>次级按钮 / 分段未选</em></div></div>
+  <div class="i"><div class="c" style="background:#27272A"></div><div class="m"><b>line-strong</b><span>#27272A</span><em>滑轨 / 卡内分隔线</em></div></div>
+  <div class="i"><div class="c" style="background:#1F1F23"></div><div class="m"><b>line-subtle</b><span>#1F1F23</span><em>标题栏 / 状态栏分隔线</em></div></div>
+  <div class="i"><div class="c" style="background:#3F3F46"></div><div class="m"><b>line-outline</b><span>#3F3F46</span><em>未选复选框描边</em></div></div>
+</div>
+
+<h3>4.2 文字色阶</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:150px">令牌</th><th style="width:110px">值</th><th>用途</th></tr>
+<tr><td>text-primary</td><td>#FAFAFA</td><td>窗口标题、分组标题、激活页签、次级按钮文字、型号</td></tr>
+<tr><td>text-secondary</td><td>#E4E4E7</td><td>参数标签、选项文字、详细信息值</td></tr>
+<tr><td>text-tertiary</td><td>#A1A1AA</td><td>参数数值、未选页签 / 分段文字、分辨率行、状态栏左侧</td></tr>
+<tr><td>text-muted</td><td>#71717A</td><td>详细信息标签、置灰文案、热键提示、窗口按钮</td></tr>
+<tr><td>text-disabled</td><td>#52525B</td><td>禁用态文字（在 muted 基础上再降一档）</td></tr>
+<tr><td>text-on-accent</td><td>#0A0A0B</td><td><b>所有强调色填充面上的文字</b></td></tr>
+</table></div>
+
+<div class="note"><b>白字还是黑字？用黑字。</b>红色 <code>#F04438</code> 上放白字对比度只有 <b>3.76 : 1</b>（不达 AA 正文），放 <code>#0A0A0B</code> 则到 <b>5.26 : 1</b>（达标）。因此全站统一规则：<strong>强调色填充 ⇒ 文字一律 #0A0A0B</strong>。这也让红色按钮/分段与整体黑红 OSD 气质一致。</div>
+
+<h3>4.3 语义色</h3>
+<div class="sw">
+  <div class="i"><div class="c" style="background:#F04438"></div><div class="m"><b>accent</b><span>#F04438</span><em>默认强调色</em></div></div>
+  <div class="i"><div class="c" style="background:#10B981"></div><div class="m"><b>success</b><span>#10B981</span><em>DDC/CI 正常、向导就绪</em></div></div>
+  <div class="i"><div class="c" style="background:#F43F5E"></div><div class="m"><b>danger</b><span>#F43F5E</span><em>恢复出厂等破坏性操作</em></div></div>
+  <div class="i"><div class="c" style="background:#6E2A24"></div><div class="m"><b>accent-glow</b><span>#6E2A24</span><em>强调色的派生光晕色</em></div></div>
+</div>
+
+<h3>4.4 备选强调色（系统管理 → 强调色）</h3>
+<p>首位是「跟随品牌」胶囊，其后 5 个色块可选。色块尺寸 <b>20 × 20</b>、圆角 <code>6</code>、间距 <b>32</b>。</p>
+<div class="sw">
+  <div class="i"><div class="c" style="background:#F04438"></div><div class="m"><b>红（默认）</b><span>#F04438</span><em>跟随品牌 · 未收录回落</em></div></div>
+  <div class="i"><div class="c" style="background:#F5B913"></div><div class="m"><b>金</b><span>#F5B913</span><em>传统 OSD 金</em></div></div>
+  <div class="i"><div class="c" style="background:#22D3EE"></div><div class="m"><b>青</b><span>#22D3EE</span></div></div>
+  <div class="i"><div class="c" style="background:#34D399"></div><div class="m"><b>绿</b><span>#34D399</span></div></div>
+  <div class="i"><div class="c" style="background:#A78BFA"></div><div class="m"><b>紫</b><span>#A78BFA</span></div></div>
+</div>
+
+<h3>4.5 背景氛围光（全屏渐变）</h3>
+<div class="grid2">
+<div>
+<div class="tbl t-mono"><table>
+<tr><th>属性</th><th>值</th></tr>
+<tr><td>类型</td><td>GRADIENT_LINEAR</td></tr>
+<tr><td>方向</td><td>45°（右上 → 左下）</td></tr>
+<tr><td>transform</td><td>[[1,1,0],[-1,1,0.5]]</td></tr>
+<tr><td>尺寸</td><td>1440 × 960，贴窗口，层级最底</td></tr>
+</table></div>
+</div>
+<div>
+<div class="tbl t-mono"><table>
+<tr><th>停靠点</th><th>Alpha</th></tr>
+<tr><td>0 %（右上角）</td><td><b>0.50</b></td></tr>
+<tr><td>55 %</td><td><b>0.07</b></td></tr>
+<tr><td>100 %（左下角）</td><td><b>0.00</b></td></tr>
+</table></div>
+</div>
+</div>
+
+<pre>WinForms 等价实现（以 #F04438 为例）
+<span style="color:#71717A">// 135° = 右上 → 左下；GDI+ 角度以 X 轴为 0、顺时针为正</span>
+var b = new <b>LinearGradientBrush</b>(rect, Color.FromArgb(128, 255, 240, 38), Color.Transparent, 135f);
+var cb = new <b>ColorBlend</b>(3);
+cb.Colors     = new[]{ Color.FromArgb(128,255,240,38),
+                       Color.FromArgb( 18,255,240,38),
+                       Color.FromArgb(  0,255,240,38) };
+cb.Positions  = new[]{ 0f, <b>0.55f</b>, 1f };
+b.InterpolationColors = cb;</pre>
+
+<div class="note"><b>「大范围但少红像素」是怎么做到的？</b>起点 alpha 高达 <b>0.5</b>，但衰减极快——过半画面已降到 0.07，左下角完全归零。视觉上是「一整片斜向的红雾铺满窗口」，但因为大部分区域 alpha 极低，整体红色像素占比很小，不会压过前景内容。</div>
+
+<h3>4.6 光晕衍生算法（换肤核心）</h3>
+<p>换主题色时，<strong>背景渐变与卡片外发光不使用纯强调色</strong>，而使用派生的「光晕色」，否则金 / 青 / 紫等高亮度色铺满后会产生廉价 RGB 灯效感。</p>
+<pre><span style="color:#71717A">// 强调色 → 光晕色</span>
+HSV hsv = <b>RgbToHsv</b>(accentColor);
+hsv.S *= <b>0.5f</b>;      <span style="color:#71717A">// 饱和度 × 0.5</span>
+hsv.V *= <b>0.35f</b>;     <span style="color:#71717A">// 明度   × 0.35</span>
+Color glow = <b>HsvToRgb</b>(hsv);</pre>
+<div class="tbl t-mono"><table>
+<tr><th style="width:170px">强调色</th><th style="width:150px">派生光晕色</th><th>验证结果</th></tr>
+<tr><td>#F04438（红）</td><td>#6E2A24</td><td>已成稿，勾选态、品牌默认</td></tr>
+<tr><td>#F5B913（金）</td><td>#6E5510</td><td>全幅渐变下依然协调</td></tr>
+<tr><td>#22D3EE（青）</td><td>#0E4A52</td><td>全幅渐变下依然协调</td></tr>
+<tr><td>#4C8DFF（泰坦蓝）</td><td>#24477E</td><td>冷色铺满不发灰</td></tr>
+<tr><td>#C9D4DD（外星人银白）</td><td>#565C63</td><td>高明度低饱和，需靠 alpha 提亮</td></tr>
+</table></div>
+<div class="rule">光晕色本身很暗，所以 <strong>光晕/渐变的起始 alpha 可放宽到 0.5 – 0.7</strong>，不必沿用前景色的 alpha 值。</div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+<h2><span class="n">05</span>字体系统</h2>
+
+<div class="tbl"><table>
+<tr><th style="width:120px">角色</th><th style="width:250px">字体 / 字重</th><th style="width:80px">字号</th><th>用途</th></tr>
+<tr><td><b>UI 主字体</b></td><td>Noto Sans SC</td><td>—</td><td>全部中文界面</td></tr>
+<tr><td><b>拉丁 / 品牌</b></td><td>Inter</td><td>—</td><td>品牌名、Logo 字母、窗口按钮符号</td></tr>
+<tr><td><b>数值 / 等宽</b></td><td>JetBrains Mono</td><td>—</td><td>参数数值、刷新率、分辨率、序列号、热键</td></tr>
+</table></div>
+
+<div class="tbl t-mono"><table>
+<tr><th style="width:150px">样式</th><th style="width:130px">字号 / 字重</th><th>示例</th></tr>
+<tr><td>窗口标题</td><td>13 / Medium</td><td>MonitorOSD · 显示器控制</td></tr>
+<tr><td>页签 · 激活</td><td>13 / Medium</td><td>参数设置</td></tr>
+<tr><td>页签 · 未激活</td><td>13 / Regular</td><td>系统管理</td></tr>
+<tr><td>分组标题</td><td>13 / SemiBold</td><td>基本设置</td></tr>
+<tr><td>参数标签</td><td>13 / Regular</td><td>亮度 / 自然色彩饱和度</td></tr>
+<tr><td>分段选项</td><td>12 / Regular（选中 Medium）</td><td>标准 · 偏蓝 · 用户</td></tr>
+<tr><td>参数数值</td><td>13 / Regular · Mono</td><td>75 / 100</td></tr>
+<tr><td>刷新率</td><td><b>24 / Bold · Mono</b></td><td>360 Hz</td></tr>
+<tr><td>显示器型号</td><td>20 / SemiBold</td><td>XL2566K</td></tr>
+<tr><td>分辨率行</td><td>15 / Regular · Mono</td><td>1920 × 1080 · DP1</td></tr>
+<tr><td>品牌名</td><td>11 / Medium · Inter</td><td>BENQ ZOWIE</td></tr>
+<tr><td>Logo 字母</td><td><b>22 / Bold · Inter</b></td><td>Z</td></tr>
+<tr><td>详细信息 · 标签</td><td>11 / Regular</td><td>序列号</td></tr>
+<tr><td>详细信息 · 值</td><td>11 / Regular · Mono</td><td>EBS4P01056CL0</td></tr>
+<tr><td>主 / 副 徽标</td><td>10 / Medium</td><td>主</td></tr>
+<tr><td>状态栏</td><td>12 / Regular</td><td>DDC/CI 正常 · 基准保存于 10-12 18:02</td></tr>
+<tr><td>热键提示</td><td>12 / Regular · Mono</td><td>Ctrl+Alt+O 显示/隐藏</td></tr>
+</table></div>
+
+<div class="warn"><b>落地注意：</b>Noto Sans SC 与 JetBrains Mono 全量字体文件各 5–15 MB，与「单文件 70 KB 免安装」的定位冲突。建议<strong>做字符子集化</strong>（界面用字 &lt; 300 个汉字，子集后每个字体可压到 40–90 KB），或直接降级为系统中文字体 <code>微软雅黑 / Microsoft YaHei UI</code> + <code>Consolas</code>（等宽），观感损失很小。<strong>字号与行距需按新字体重新微调</strong>，中文行高建议 1.5 倍。</div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+<h2><span class="n">06</span>圆角与描边</h2>
+<div class="tbl t-mono"><table>
+<tr><th style="width:100px">半径</th><th>应用对象</th></tr>
+<tr><td><b>12</b></td><td>窗口本体、全部卡片（分组卡 / 显示器卡）</td></tr>
+<tr><td><b>10</b></td><td>品牌 Logo 底块 44×44</td></tr>
+<tr><td><b>8</b></td><td>按钮（主 / 次 / 危险）、唤醒按钮、打开向导按钮</td></tr>
+<tr><td><b>6</b></td><td>分段选择项、强调色块、闲置时长下拉</td></tr>
+<tr><td><b>4</b></td><td>复选框 16×16、主 / 副 徽标 24×16</td></tr>
+<tr><td><b>3</b></td><td>滑条轨道与填充</td></tr>
+<tr><td><b>2</b></td><td>页签激活下划线（68×3）</td></tr>
+</table></div>
+<h3>描边与分隔线</h3>
+<ul>
+<li>卡片默认<strong>不用描边</strong>——靠底色差异分层（<code>#121214</code> / <code>#141417</code> vs <code>#0A0A0B</code>）。</li>
+<li>卡内分隔线：1px <code>#27272A</code>（显示器信息卡内，宽 160）。</li>
+<li>全宽分隔线：1px <code>#1F1F23</code>（标题栏底部、状态栏顶部）。</li>
+<li>未选复选框：<code>#1B1B1F</code> 底 + 1px 内描边 <code>#3F3F46</code>（否则与卡片同色而不可见）。</li>
+<li>聚焦态：1px 强调色描边。</li>
+</ul>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="s7">
+<h2><span class="n">07</span>页面结构</h2>
+<p>两屏共用同一副骨架，仅中间内容区不同：标题栏 → 左栏显示器信息 → 右栏功能分组 → 状态栏。</p>
+
+<div class="mock">
+  <div class="frame">
+    <!-- title bar -->
+    <div class="bx lbl-b" style="left:0;top:0;width:100%;height:4.58%;border-radius:0;background:#0A0A0B;border:none;border-bottom:1px solid #1F1F23">标题栏 1440×44 · 标题 / 窗口按钮</div>
+    <!-- tabs -->
+    <div class="bx lbl-a" style="left:16.9%;top:5.7%;width:15%;height:4.6%">页签：参数设置 | 系统管理</div>
+    <!-- action buttons -->
+    <div class="bx lbl-a" style="left:73.3%;top:6.25%;width:25.4%;height:3.55%">保存基准 · 一键还原基准</div>
+    <!-- left cards -->
+    <div class="bx lbl-a" style="left:1.1%;top:7.5%;width:12.8%;height:40.8%">显示器信息卡 · 主<br>Logo / 品牌 / 型号 / 360 Hz / 详情 7 行</div>
+    <div class="bx lbl-a" style="left:1.1%;top:50%;width:12.8%;height:40.8%">显示器信息卡 · 副<br>（默认未选，无发光）</div>
+    <!-- groups -->
+    <div class="bx lbl-c" style="left:16.9%;top:12.5%;width:5%;height:2%">分组标题</div>
+    <div class="bx lbl-b" style="left:16.3%;top:15%;width:81.1%;height:42.5%">基本设置卡 · 1168×408<br>亮度 / 对比度 / 锐利度 / 饱和度 / 色温 / 用户RGB / 灰度</div>
+    <div class="bx lbl-c" style="left:16.9%;top:60.4%;width:5%;height:2%">分组标题</div>
+    <div class="bx lbl-b" style="left:16.9%;top:63.3%;width:81.1%;height:19.2%">高级功能卡 · 1168×184<br>DyAc+ / 黑位均衡器 / AMA</div>
+    <div class="bx lbl-c" style="left:16.9%;top:84.2%;width:30%;height:1.8%">置灰项说明（FreeSync 走显卡驱动…）</div>
+    <!-- status bar -->
+    <div class="bx lbl-b" style="left:0;top:95.4%;width:100%;height:4.6%;border-radius:0;background:#0E0E10;border:none;border-top:1px solid #1F1F23">状态栏 1440×44 · DDC/CI 状态 / 热键</div>
+  </div>
+  <div class="cap">参数设置页 · 红框 = 品牌自适应区域（强调色随品牌变化）｜灰框 = 中性结构</div>
+</div>
+
+<h3>7.1 参数设置页（主控）</h3>
+<ul>
+<li><strong>基本设置卡</strong> 1168×408：亮度、对比度、锐利度、自然色彩饱和度、色温（分段）、用户色温 RGB（置灰）、灰度（分段 1–5）。</li>
+<li><strong>高级功能卡</strong> 1168×184：DyAc+（分段 关/高/高级）、黑位均衡器（滑条）、AMA 瞬时加速（分段 关/低/中/高）。</li>
+<li>卡下方为置灰项说明，说明 FreeSync 等走显卡驱动的参数为何不可调。</li>
+</ul>
+
+<h3>7.2 系统管理页</h3>
+<ul>
+<li><strong>基准与还原卡</strong> 1168×164：基准保存信息 + 3 个复选框（启动还原 / 关机还原 / 闲置还原 + 时长下拉）。</li>
+<li><strong>显示器维护卡</strong> 1168×168：唤醒显示器按钮、OSD 锁定（正常 / 锁菜单 / 全锁）、恢复出厂（危险色）。</li>
+<li><strong>校准向导卡</strong> 1168×128：状态点 + 说明 + 打开向导按钮。</li>
+<li><strong>软件设置卡</strong> 1168×132：开机自启、最小化到托盘、强调色选择。</li>
+</ul>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="s8">
+<h2><span class="n">08</span>组件规范</h2>
+
+<h3>8.1 标题栏</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:150px">元素</th><th>规格</th></tr>
+<tr><td>区域</td><td>1440 × 44，底 1px #1F1F23</td></tr>
+<tr><td>窗口标题</td><td>x 24 / y 14，13 Medium #FAFAFA，「MonitorOSD · 显示器控制」</td></tr>
+<tr><td>窗口按钮</td><td>右对齐 x 1298 / y 14，13 #71717A，「—　□　✕」</td></tr>
+</table></div>
+
+<h3>8.2 顶部页签</h3>
+<div class="stage"><span class="lbl">TABS · 实际渲染</span>
+  <div class="s-tabbar">
+    <div class="s-tab on">参数设置</div>
+    <div class="s-tab off">系统管理</div>
+  </div>
+</div>
+<ul>
+<li>标签文字 13px；首项 x <b>244</b>，第二项 x <b>352</b>（文字宽 52 + 间距 56），基线 y <b>64</b>。</li>
+<li>激活态：文字 <b>Medium #FAFAFA</b>；未激活：<b>Regular #A1A1AA</b>。</li>
+<li><strong>激活下划线</strong>：高 <b>3</b>、圆角 <code>2</code>、色 <code>accent</code>，位于文字下方 9px（y 92）；<strong>宽度 = 文字宽 + 16（左右各溢出 8px）</strong>，并水平居中于文字——所以下划线看起来比文字「长一截」。</li>
+</ul>
+<div class="rule">落地时下划线宽度请由测量文字实时计算：<code>barW = textW + 16; barX = textX - 8</code>，不要写死 68。</div>
+
+<h3>8.3 行动按钮</h3>
+<div class="stage"><span class="lbl">BUTTONS · 实际渲染</span>
+  <div class="s-btns">
+    <button class="s-btn sec">保存基准</button>
+    <button class="s-btn pri">一键还原基准</button>
+  </div>
+</div>
+<div class="tbl t-mono"><table>
+<tr><th style="width:130px">按钮</th><th style="width:130px">尺寸</th><th style="width:130px">底色 / 圆角</th><th>文字</th></tr>
+<tr><td>保存基准（次级）</td><td>120 × 34</td><td>#1B1B1F / r8</td><td>13 Medium #FAFAFA，居中</td></tr>
+<tr><td>一键还原基准（主）</td><td>228 × 34</td><td>accent / r8</td><td>13 SemiBold #0A0A0B，居中</td></tr>
+</table></div>
+<p>两按钮右对齐，右边缘 x <b>1416</b>，按钮间距 <b>12</b>，垂直基线 y <b>60</b>。<strong>主按钮全站唯一</strong>，任何页面都只有这一个实心强调色按钮。</p>
+
+<h3>8.4 显示器信息卡</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:130px">属性</th><th>规格</th></tr>
+<tr><td>尺寸</td><td>宽 <b>184</b>，高 <b>392</b>，r12，底 #141417</td></tr>
+<tr><td>主卡位置</td><td>x 16 / y 72</td></tr>
+<tr><td>副卡位置</td><td>x 16 / y 480（主卡底部 + 16 间距）</td></tr>
+<tr><td>内边距</td><td>左右 12、上 12、下 16</td></tr>
+</table></div>
+<h4>内部元素（自上而下）</h4>
+<div class="tbl t-mono"><table>
+<tr><th style="width:150px">元素</th><th style="width:130px">位置</th><th>样式</th></tr>
+<tr><td>品牌 Logo 底块</td><td>x 28 / 卡内 y 12</td><td>44 × 44，r10，<b>accent 填充</b></td></tr>
+<tr><td>Logo 字母</td><td>块内居中</td><td>22 Inter Bold，#FFFFFF</td></tr>
+<tr><td>品牌名</td><td>x 84，与 Logo 垂直居中</td><td>11 Inter Medium #A1A1AA，「BENQ ZOWIE」</td></tr>
+<tr><td>型号</td><td>x 28 / y 150</td><td>20 SemiBold #FAFAFA，「XL2566K」</td></tr>
+<tr><td>刷新率</td><td>x 28 / y 186</td><td><b>24 JetBrains Mono Bold</b>，「360 Hz」</td></tr>
+<tr><td>分辨率行</td><td>x 28 / y 220</td><td>15 Mono #A1A1AA，「1920 × 1080 · DP1」</td></tr>
+<tr><td>分隔线</td><td>x 28 / y 252</td><td>160 × 1 #27272A</td></tr>
+<tr><td>「详细信息」</td><td>x 28 / y 264</td><td>11 #71717A</td></tr>
+<tr><td>键值行 × 6</td><td>标签 x 28 / 值 x 96</td><td>标签 11 #71717A｜值 11 Mono #E4E4E7，行距 <b>28</b></td></tr>
+<tr><td>主 / 副 徽标</td><td>右上角 x 168</td><td>24 × 16 r4，10 Medium</td></tr>
+</table></div>
+
+<h4>选中态（默认选中第一张 = 主显示器）</h4>
+<p>选中通过<strong>两处信号叠加</strong>表达，不只靠发光：</p>
+<ol>
+<li><strong>刷新率文字用强调色</strong>（主卡 <code>360 Hz</code> 为红；未选中的副卡 <code>144 Hz</code> 为中性 <code>#FAFAFA</code>）。</li>
+<li><strong>边缘发光</strong>——同时施加内发光与外发光：</li>
+</ol>
+<pre>effects: [
+  { type: <b>"INNER_SHADOW"</b>, color: accent a0.70, radius: 3,  spread: 0 },
+  { type: <b>"INNER_SHADOW"</b>, color: accent a0.30, radius: 8,  spread: 0 },
+  { type: <b>"DROP_SHADOW"</b>,  color: accent a0.35, radius: 20, spread: 0,
+    offset: {x:0,y:0}, <b>showShadowBehindNode: true</b> }
+]</pre>
+<p>三个 shadow 叠加的效果：贴边一圈锐利亮线（r3）+ 一圈柔和内晕（r8）+ 卡外弥散光（r20）。未选中的卡 <code>effects: []</code>，无任何发光。</p>
+<div class="note"><b>GDI+ 落地提示：</b>外发光无法直接画，需要用 <code>GraphicsPath</code> 生成圆角矩形路径，再叠 3–4 次 <code>DrawPath</code>，每次 <code>Pen</code> 更粗、alpha 更低（例如 r=16/12/8/4，alpha=0.06/0.09/0.14/0.22），模拟弥散；内发光则用 <code>PathGradientBrush</code> 的 <code>CenterColor = Transparent</code> + <code>SurroundColors = accent</code> 填充路径内圈。</div>
+
+<h4>主 / 副 徽标</h4>
+<div class="tbl"><table>
+<tr><th style="width:100px">类型</th><th>样式</th></tr>
+<tr><td>主</td><td>24 × 16 r4，<b>accent 底</b> + #0A0A0B 字</td></tr>
+<tr><td>副</td><td>24 × 16 r4，#1B1B1F 底 + #A1A1AA 字</td></tr>
+</table></div>
+
+<h3>8.5 参数分组卡与参数行</h3>
+<p>分组标题在卡片<strong>外部上方</strong>（x 244，13 SemiBold #FAFAFA），卡片 x 234 / 244，宽 1168，r12，底 #121214，卡内上/左内边距 24。</p>
+<div class="stage"><span class="lbl">PARAM ROW · 实际渲染</span>
+  <div class="s-row">
+    <div style="width:100px;font-size:13px;color:#E4E4E7">亮度</div>
+    <div class="s-track"><i style="width:75%"></i><u style="left:75%"></u></div>
+    <div class="s-num">75 / 100</div>
+  </div>
+  <div class="s-row" style="opacity:.55">
+    <div style="width:100px;font-size:13px;color:#71717A">用户色温 RGB</div>
+    <div style="font-size:12px;color:#71717A">色温须为「用户」后可调</div>
+  </div>
+</div>
+<div class="tbl t-mono"><table>
+<tr><th style="width:130px">列</th><th>规格</th></tr>
+<tr><td>标签列</td><td>x 268，13 Regular #E4E4E7</td></tr>
+<tr><td>控件列</td><td>x 430 起，宽 700</td></tr>
+<tr><td>数值列</td><td>右对齐至 x 1389，13 Mono #A1A1AA</td></tr>
+<tr><td>行高</td><td>56（滑条行）/ 56（分段行）</td></tr>
+</table></div>
+
+<h3>8.6 滑条</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:140px">部件</th><th>规格</th></tr>
+<tr><td>轨道</td><td>700 × 6，r3，#27272A，x 430</td></tr>
+<tr><td>填充</td><td>高 6，r3，<b>accent</b>；宽 = 700 × 百分比</td></tr>
+<tr><td>滑块</td><td>14 × 14 圆形 #FAFAFA，圆心对准填充末端，垂直居中于轨道</td></tr>
+<tr><td>数值</td><td>「75 / 100」13 Mono #A1A1AA，右对齐 x 1326</td></tr>
+</table></div>
+<p>实测值参考：亮度 75/100 → 填充 525px｜对比度 50/100 → 350px｜锐利度 5/10 → 350px｜饱和度 10/20 → 350px｜黑位 8/20 → 280px。</p>
+
+<h3>8.7 分段选择器</h3>
+<div class="stage"><span class="lbl">SEGMENTED · 实际渲染</span>
+  <div style="display:flex;gap:6px">
+    <div class="s-seg on">标准</div>
+    <div class="s-seg">偏蓝</div>
+    <div class="s-seg">偏红</div>
+    <div class="s-seg">用户</div>
+  </div>
+</div>
+<div class="tbl t-mono"><table>
+<tr><th style="width:140px">属性</th><th>规格</th></tr>
+<tr><td>尺寸</td><td>68 × 28（灰度控件的数字段为 56 × 28）</td></tr>
+<tr><td>间距</td><td>6</td></tr>
+<tr><td>圆角</td><td>6</td></tr>
+<tr><td>选中</td><td><b>accent 底</b> + 文字 12 Medium #0A0A0B</td></tr>
+<tr><td>未选</td><td>#1B1B1F 底 + 文字 12 Regular #A1A1AA</td></tr>
+</table></div>
+
+<h3>8.8 复选框</h3>
+<div class="stage"><span class="lbl">CHECKBOX · 实际渲染</span>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="s-cbx on">✓</div><div style="font-size:13px;color:#E4E4E7">启动时自动还原基准</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="s-cbx off"></div><div style="font-size:13px;color:#E4E4E7">闲置后自动还原</div>
+    </div>
+  </div>
+</div>
+<p>16 × 16，r4。选中 = accent 底 + 「✓」10px #0A0A0B；未选 = #1B1B1F 底 + 1px <code>#3F3F46</code> 内描边。标签 13 #E4E4E7，与框垂直居中，间距 12（框 x 268 → 文字 x 296）。</p>
+
+<h3>8.9 下拉选择（闲置时长）</h3>
+<p>90 × 28，r6，#1B1B1F 底；文字 12 #E4E4E7（x 462），右侧箭头「▾」12 #71717A（x 518）。</p>
+
+<h3>8.10 卡片容器汇总</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:180px">容器</th><th style="width:140px">尺寸</th><th>底色</th></tr>
+<tr><td>显示器信息卡（主/副）</td><td>184 × 392</td><td>#141417</td></tr>
+<tr><td>基本设置卡</td><td>1168 × 408</td><td>#121214</td></tr>
+<tr><td>高级功能卡</td><td>1168 × 184</td><td>#121214</td></tr>
+<tr><td>基准与还原卡</td><td>1168 × 164</td><td>#121214</td></tr>
+<tr><td>显示器维护卡</td><td>1168 × 168</td><td>#121214</td></tr>
+<tr><td>校准向导卡</td><td>1168 × 128</td><td>#121214</td></tr>
+<tr><td>软件设置卡</td><td>1168 × 132</td><td>#121214</td></tr>
+</table></div>
+
+<h3>8.11 状态栏</h3>
+<div class="stage"><span class="lbl">STATUS BAR · 实际渲染</span>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;
+              border-top:1px solid #1F1F23">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#A1A1AA">
+      <span style="width:8px;height:8px;border-radius:50%;background:#10B981;display:block"></span>
+      DDC/CI 正常 · 基准保存于 10-12 18:02
+    </div>
+    <div style="font-family:var(--mono);font-size:12px;color:#71717A">
+      Ctrl+Alt+O 显示/隐藏　Ctrl+Alt+←/→ 切换显示器
+    </div>
+  </div>
+</div>
+<p>高 44，底 #0E0E10，顶 1px #1F1F23。左侧状态点 8 × 8 <code>#10B981</code> + 12 #A1A1AA 文案（x 24 / 40）；右侧热键提示 12 Mono #71717A，右对齐 x 1378。</p>
+
+<h3>8.12 置灰参数行</h3>
+<p>规则：标签色由 <code>#E4E4E7</code> 降到 <code>#71717A</code>，控件不渲染，紧接一句 12px #71717A 的原因说明。示例：「用户色温 RGB」→「色温须为「用户」后可调」；页面底部还有一条整宽说明：「FreeSync 自适应同步 — 走显卡驱动，请用显示器 OSD 或显卡面板调整」。</p>
+<div class="warn"><b>硬性要求：</b>任何不可调的参数<strong>禁止直接消失</strong>。位置保留 + 原因文案，是网管定位问题的唯一线索。</div>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="s9">
+<h2><span class="n">09</span>状态与交互</h2>
+<div class="tbl t-mono"><table>
+<tr><th style="width:150px">状态</th><th>表现</th></tr>
+<tr><td>默认</td><td>见组件规范</td></tr>
+<tr><td>Hover · 次级按钮/分段</td><td>底色 #1B1B1F → #232329</td></tr>
+<tr><td>Hover · 主按钮</td><td>accent 提亮 8% → #F15B50</td></tr>
+<tr><td>Hover · 显示器卡</td><td>底色 #141417 → #1A1A1E</td></tr>
+<tr><td>Pressed</td><td>整体压暗 6%，按下位移不做（避免抖动）</td></tr>
+<tr><td>Selected · 页签</td><td>文字 #A1A1AA → #FAFAFA + Medium，底部 68×3 强调色下划线</td></tr>
+<tr><td>Selected · 分段</td><td>底 #1B1B1F → accent，文字 #A1A1AA → #0A0A0B + Medium</td></tr>
+<tr><td>Selected · 显示器卡</td><td>外发光 + 内发光（见 8.4），刷新率转强调色</td></tr>
+<tr><td>Disabled</td><td>文字 → #71717A，整体 opacity 60%，附原因文案</td></tr>
+<tr><td>Focus（键盘）</td><td>1px accent 描边，偏移 2px</td></tr>
+<tr><td>Danger Hover</td><td>「恢复出厂」文字 #F43F5E，Hover 时背景 #F43F5E @ 12% alpha</td></tr>
+<tr><td>DDC/CI 断开</td><td>状态点 #10B981 → accent 或 #F43F5E，状态栏文案改为「DDC/CI 未检测到显示器」<b>（严禁静默失败）</b></td></tr>
+</table></div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+<h2><span class="n">10</span>品牌色绑定机制</h2>
+<p>强调色有三层解析优先级，<strong>用户手动选择永远最高</strong>，不会被自动检测覆盖：</p>
+<div class="tbl"><table>
+<tr><th style="width:110px">优先级</th><th>触发条件</th><th>结果</th></tr>
+<tr><td><b>① 手动</b></td><td>用户在「系统管理 → 强调色」选了具体色块</td><td>直接使用该色，忽略品牌</td></tr>
+<tr><td><b>② 自动</b></td><td>强调色为「跟随品牌」且 EDID 检测到已知厂商 ID</td><td>套用该品牌预设色</td></tr>
+<tr><td><b>③ 回落</b></td><td>品牌未收录 / EDID 读取失败</td><td>默认红 <code>#F04438</code></td></tr>
+</table></div>
+
+<h3>品牌预设表（12 家）</h3>
+<div class="sw">
+  <div class="i"><div class="c" style="background:#F04438"></div><div class="m"><b>卓威 ZOWIE</b><span>#F04438 · glow #6E2A24</span><em>默认红（与华硕同源）</em></div></div>
+  <div class="i"><div class="c" style="background:#F04438"></div><div class="m"><b>华硕 ASUS / ROG</b><span>#F04438 · glow #6E2A24</span></div></div>
+  <div class="i"><div class="c" style="background:#F04438"></div><div class="m"><b>HKC 惠科</b><span>#F04438 · glow #6E2A24</span></div></div>
+  <div class="i"><div class="c" style="background:#FF5A47"></div><div class="m"><b>AOC</b><span>#FF5A47 · glow #7A2F28</span><em>略偏暖的活力红</em></div></div>
+  <div class="i"><div class="c" style="background:#FF5A47"></div><div class="m"><b>爱攻 AGON</b><span>#FF5A47 · glow #7A2F28</span></div></div>
+  <div class="i"><div class="c" style="background:#FF7A3D"></div><div class="m"><b>蚂蚁电竞 ANTGAMER</b><span>#FF7A3D · glow #7A3D20</span></div></div>
+  <div class="i"><div class="c" style="background:#FF8A3D"></div><div class="m"><b>小米</b><span>#FF8A3D · glow #7A4520</span></div></div>
+  <div class="i"><div class="c" style="background:#4C8DFF"></div><div class="m"><b>泰坦军团 TITAN ARMY</b><span>#4C8DFF · glow #24477E</span></div></div>
+  <div class="i"><div class="c" style="background:#C9D4DD"></div><div class="m"><b>外星人 ALIENWARE</b><span>#C9D4DD · glow #565C63</span><em>银白，需低 alpha</em></div></div>
+  <div class="i"><div class="c" style="background:#3B82F6"></div><div class="m"><b>戴尔 DELL</b><span>#3B82F6 · glow #22416E</span></div></div>
+  <div class="i"><div class="c" style="background:#38BDF8"></div><div class="m"><b>惠普 HP</b><span>#38BDF8 · glow #1A5570</span></div></div>
+  <div class="i"><div class="c" style="background:#E8483C"></div><div class="m"><b>华为 HUAWEI</b><span>#E8483C · glow #6E2A26</span></div></div>
+</div>
+
+<pre><span style="color:#71717A">// 数据模型建议</span>
+enum AccentMode { <b>Auto</b>, <b>Manual</b> }          <span style="color:#71717A">// config.accentMode</span>
+
+static readonly Dictionary&lt;string, (string Accent,string Glow)&gt; BrandAccent = new()
+{
+    <span style="color:#71717A">// EDID 厂商 ID → 品牌色</span>
+    [<b>"BNQ"</b>] = ("#F04438","#6E2A24"),   <span style="color:#71717A">// BenQ / ZOWIE</span>
+    [<b>"ASU"</b>] = ("#F04438","#6E2A24"),   <span style="color:#71717A">// ASUS</span>
+    [<b>"HKC"</b>] = ("#F04438","#6E2A24"),
+    [<b>"AOC"</b>] = ("#FF5A47","#7A2F28"),
+    [<b>"DEL"</b>] = ("#3B82F6","#22416E"),   <span style="color:#71717A">// Dell</span>
+    [<b>"HWP"</b>] = ("#38BDF8","#1A5570"),   <span style="color:#71717A">// HP</span>
+    [<b>"HEC"</b>] = ("#E8483C","#6E2A26"),   <span style="color:#71717A">// HUAWEI</span>
+    <span style="color:#71717A">// …其余见上表</span>
+};
+
+Color ResolveAccent(string edidVendorId) =&gt;
+    config.accentMode == AccentMode.Manual ? config.manualAccent
+    : BrandAccent.TryGetValue(edidVendorId, out var b) ? Parse(b.Accent)
+    : <b>AccentDefault</b>;   <span style="color:#71717A">// #F04438</span></pre>
+
+<div class="note"><b>光晕色不单独存储。</b>上表的 glow 值只是预制校验结果；运行时一律由 <code>ResolveAccent()</code> 的返回值经第 4.6 节算法实时派生，保证新增品牌无需手填两个颜色。</div>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+<h2><span class="n">11</span>内容清单</h2>
+<p>以下为设计稿中的全部文案与实测数据，可直接作为 WinForms 控件的 <code>Text</code> 初值。</p>
+
+<h3>11.1 显示器信息 · 主（ZOWIE XL2566K）</h3>
+<div class="tbl t-mono"><table>
+<tr><td style="width:130px">品牌名</td><td>BENQ ZOWIE</td><td style="width:130px">Logo 字母</td><td>Z</td></tr>
+<tr><td>型号</td><td>XL2566K</td><td>刷新率</td><td>360 Hz</td></tr>
+<tr><td>分辨率行</td><td>1920 × 1080 · DP1</td><td>徽标</td><td>主</td></tr>
+<tr><td>序列号</td><td>EBS4P01056CL0</td><td>生产日期</td><td>2023 · W15</td></tr>
+<tr><td>面板尺寸</td><td>54 × 30 cm</td><td>EDID 版本</td><td>1.4</td></tr>
+<tr><td>累计使用</td><td>1084 小时</td><td>色彩格式</td><td>RGB 8-bit</td></tr>
+</table></div>
+
+<h3>11.2 显示器信息 · 副（AOC 24G2）</h3>
+<div class="tbl t-mono"><table>
+<tr><td style="width:130px">品牌名</td><td>AOC</td><td style="width:130px">Logo 字母</td><td>A</td></tr>
+<tr><td>型号</td><td>AOC 24G2</td><td>刷新率</td><td>144 Hz</td></tr>
+<tr><td>分辨率行</td><td>1920×1080 · HDMI1</td><td>徽标</td><td>副</td></tr>
+<tr><td>序列号</td><td>AOC24060123</td><td>生产日期</td><td>2022 · W40</td></tr>
+<tr><td>面板尺寸</td><td>53 × 30 cm</td><td>EDID 版本</td><td>1.4</td></tr>
+<tr><td>累计使用</td><td>2041 小时</td><td>色彩格式</td><td>RGB 8-bit</td></tr>
+</table></div>
+
+<h3>11.3 参数设置页</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:170px">参数</th><th style="width:150px">控件</th><th>取值 / 状态</th></tr>
+<tr><td>亮度</td><td>滑条</td><td>75 / 100</td></tr>
+<tr><td>对比度</td><td>滑条</td><td>50 / 100</td></tr>
+<tr><td>锐利度</td><td>滑条</td><td>5 / 10</td></tr>
+<tr><td>自然色彩饱和度</td><td>滑条</td><td>10 / 20</td></tr>
+<tr><td>色温</td><td>分段</td><td>标准（选中）/ 偏蓝 / 偏红 / 用户</td></tr>
+<tr><td>用户色温 RGB</td><td>置灰</td><td>「色温须为「用户」后可调」</td></tr>
+<tr><td>灰度</td><td>分段 1–5</td><td>1 / 2 / 3 / 4 / 5</td></tr>
+<tr><td>DyAc+</td><td>分段</td><td>关 / 高 / <b>高级</b></td></tr>
+<tr><td>黑位均衡器</td><td>滑条</td><td>8 / 20</td></tr>
+<tr><td>AMA 瞬时加速</td><td>分段</td><td>关 / 低 / <b>中</b> / 高</td></tr>
+<tr><td>FreeSync 自适应同步</td><td>整宽说明</td><td>走显卡驱动，请用显示器 OSD 或显卡面板调整</td></tr>
+</table></div>
+
+<h3>11.4 系统管理页</h3>
+<div class="tbl t-mono"><table>
+<tr><th style="width:190px">分组 / 项</th><th>内容</th></tr>
+<tr><td>基准与还原 · 信息</td><td>基准保存于 10-12 18:02 · 共 9 项参数</td></tr>
+<tr><td>启动时自动还原基准</td><td>复选框 · 选中</td></tr>
+<tr><td>关机时还原基准</td><td>复选框 · 选中</td></tr>
+<tr><td>闲置后自动还原</td><td>复选框 · 未选 + 下拉「30 分钟」</td></tr>
+<tr><td>显示器维护 · 唤醒</td><td>按钮「唤醒显示器」+ 说明「向显示器发送唤醒指令，进入省电模式后可恢复」</td></tr>
+<tr><td>OSD 锁定</td><td>分段：<b>正常</b> / 锁菜单 / 全锁</td></tr>
+<tr><td>恢复出厂</td><td>按钮「恢复出厂设置」（危险色）+ 说明「清空显示器内部存储，不可撤销」</td></tr>
+<tr><td>校准向导</td><td>状态点（绿）+「差分校准已就绪」+ 说明 + 按钮「打开向导」</td></tr>
+<tr><td>软件设置 · 开机自启</td><td>复选框 · 选中</td></tr>
+<tr><td>软件设置 · 最小化到托盘</td><td>复选框 · 选中</td></tr>
+<tr><td>强调色</td><td>「跟随品牌」胶囊（默认选中）+ 红 / 金 / 青 / 绿 / 紫</td></tr>
+<tr><td>状态栏</td><td>DDC/CI 正常 · 基准保存于 10-12 18:02 ／ 热键提示</td></tr>
+</table></div>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="s12">
+<h2><span class="n">12</span>落地建议（WinForms）</h2>
+<div class="tbl"><table>
+<tr><th style="width:150px">设计要素</th><th>实现要点</th></tr>
+<tr><td>窗口</td><td><code>FormBorderStyle=None</code> + 自绘标题栏；<code>SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)</code>；圆角用 <code>CreateRoundRectRgn</code> 或 <code>DwmSetWindowAttribute</code></td></tr>
+<tr><td>双缓冲</td><td>根容器 <code>SetStyle(AllPaintingInWmPaint | UserPaint | OptimizedDoubleBuffer, true)</code>，全部绘制走 <code>OnPaint</code></td></tr>
+<tr><td>圆角矩形</td><td><code>GraphicsPath</code> + 4×<code>AddArc</code>，配合 <code>SmoothingMode.AntiAlias</code></td></tr>
+<tr><td>背景渐变</td><td>见 4.5 代码，注意 GDI+ 角度以 X 轴为起点顺时针，45° 视觉方向对应 <code>135f</code></td></tr>
+<tr><td>卡片外发光</td><td><code>GraphicsPath</code> + 多次 <code>DrawPath</code>（由粗到细、由淡到浓），或离屏 <code>Bitmap</code> 做高斯模糊后 <code>DrawImage</code></td></tr>
+<tr><td>卡片内发光</td><td><code>PathGradientBrush</code>：<code>CenterColor = Color.Transparent</code>，<code>SurroundColors = accent</code>，填充路径</td></tr>
+<tr><td>滑条 / 分段 / 复选</td><td>全部自绘 <code>UserControl</code>；不要用系统 <code>TrackBar</code> / <code>CheckBox</code>（无法改样式且 DPI 表现不一致）</td></tr>
+<tr><td>字体</td><td>子集化内嵌，或降级为「微软雅黑 UI + Consolas」。<b>等宽数值列必须用等宽字体</b>，否则滑条数值会左右抖动</td></tr>
+<tr><td>换肤</td><td>把 accent / glow / onAccent 三个值收进一个 <code>Theme</code> 静态类，所有绘制读取它；换色后 <code>Invalidate()</code> 整窗重绘</td></tr>
+<tr><td>性能</td><td>渐变与发光缓存到 <code>Bitmap</code>，仅在尺寸变化或换肤时重绘；避免每帧构建 <code>GraphicsPath</code></td></tr>
+</table></div>
+</section>
+
+<!-- ============ 13 ============ -->
+<section id="s13">
+<h2><span class="n">13</span>交付物</h2>
+<div class="tbl t-mono"><table>
+<tr><th style="width:230px">文件</th><th>说明</th></tr>
+<tr><td>MonitorOSD-设计说明书.html</td><td>本文件，可视化规范</td></tr>
+<tr><td>MonitorOSD-设计规范.md</td><td>纯文本版规范，便于投喂其他工具 / AI 产出复刻版本</td></tr>
+<tr><td>MonitorOSD-design-tokens.json</td><td>W3C Design Tokens 结构，可直接生成 CSS / C# 常量</td></tr>
+<tr><td>MonitorOSD-品牌色绑定板.png</td><td>12 品牌色预设视觉板</td></tr>
+<tr><td>MonitorOSD-主控界面-v10渐变全幅.png</td><td>参数设置页终稿</td></tr>
+<tr><td>MonitorOSD-系统管理页-v10渐变全幅.png</td><td>系统管理页终稿</td></tr>
+<tr><td>MonitorOSD-主题色对比板-v10全幅渐变.png</td><td>红 / 金 / 青 三主题光晕衍生验证</td></tr>
+</table></div>
+
+<h3>本轮同步修正的画布问题</h3>
+<ul>
+<li>参数设置页缺少标题栏分隔线 → 已补上 <code>#1F1F23</code> 1px 线，与系统管理页对齐。</li>
+<li>红底「一键还原基准」文字两页不一致（一页白字一页黑字）→ 统一为 <code>#0A0A0B</code>，对比度 5.26:1。</li>
+<li>「色温-标准」选中块用了 <code>#EC3629</code>，偏离强调色令牌 → 归一到 <code>#F04438</code>。</li>
+<li>副显示器卡高 376（底部无内边距）→ 修正为 392，与主卡一致。</li>
+<li>未选复选框底色与卡片同色不可见 → 已改为 <code>#1B1B1F</code>，并在规范中追加 1px <code>#3F3F46</code> 描边要求。</li>
+</ul>
+
+<div class="foot">
+  MonitorOSD 界面设计说明书 v1.0 · 2026-10-12 · 设计稿 ardot.tencent.com/file/735711615067376<br>
+  本规范中的全部数值均取自设计稿真实节点属性，非估值。
+</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
