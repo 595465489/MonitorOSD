@@ -15,6 +15,13 @@
 - 移除仅「软件更新」页签使用的进度条及相关布局、文案代码。
 - 清理内联后遗留的关于页绘制代码（LayoutAboutPage / AboutText / AboutContact）。
 
+### 发布
+- 2026-11-26 发布到 GitHub Releases（标记 Latest）：
+  https://github.com/595465489/MonitorOSD/releases/tag/v1.6.12
+- 附件 `MonitorOSD_v1.6.12.zip`（949,638 字节，约 928 KB），下载链接已实测可用
+  （HTTP 200，ZIP 头部校验通过，SHA256 与本地包一致）。
+- 发版目录：`发布\显示器控制_v1.6.12\`（exe + Fonts + config.json + 更新说明.md）。
+
 ## v1.6.11（2026-11-26）
 
 ### 新增
