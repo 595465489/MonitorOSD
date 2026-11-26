@@ -2,7 +2,7 @@
 // MonitorOSD C++ 版 —— 网吧显示器控制（Win32 + Direct2D + DDC/CI）
 // 以 C# 参考实现的界面为基线，按 UI/ 设计规范补全其未完成部分：
 //   - 深色主题 + 品牌自适应强调色 + 45° 氛围光（左上→右下）
-//   - 双页签：参数设置 / 系统管理
+//   - 三页签：参数设置 / 系统管理 / 关于（v1.6.8）
 //   - 左栏显示器信息卡（Logo/品牌/型号/刷新率/分辨率/详细信息，选中三圈发光）
 //   - 右栏参数分组卡（自绘滑条/分段，caps Allowed 联动过滤，滑块实时生效+合并写队列）
 //   - 置灰行 + 原因文案 / "…" 未知值 / 色温=用户 才显示用户 RGB 三行
@@ -198,6 +198,11 @@ namespace Theme {
 
 // ================= DDC 总线（全局串行化，与 C# lock(_bus) 对齐）=================
 static std::mutex g_bus;
+// v1.6.9：ddccache.json 文件级互斥——AfterCapsReady 后台线程与 StartProbe 探测线程
+// 可并发调用 SaveDdcCacheAll，读-合并-写重叠时后写覆盖先写（丢一侧更新）。
+// SaveDdcCacheAll 内部无自身重入/间接重入（仅调 ReadTextFile/MonitorKey/NormalizeAnyKey/
+// JsonSectionEnd，均不回写缓存），普通 mutex 即可。
+static std::mutex g_cacheSaveMx;
 
 // ================= 显示器设备 =================
 struct MonitorDev {
@@ -500,21 +505,32 @@ static SpecMap MakeAsus() {
     return d;
 }
 static SpecMap MakeAoc() {
+    // v1.6.7：按 AGON AG276QKD 实机扫描（39 码可读，MCCS 2.2）重校准。
+    // 标注【已验证】= 实机写入+恢复双向成功；【待验证】= 写入成功、语义按 MCCS 标准+同族机型先验，日常使用反馈。
+    // v1.6.8：删 ratio(0x86)/shadowR(0x6C)/shadowG(0x6E)/shadowB(0x70)——用户反馈画面比例与
+    //          黑阶 RGB 调整均无视觉效果（AOC 固件未真正开放这些码的功能），菜单瘦身避免死项。
     SpecMap d;
-    Sl(d, "bright", 0x10, 0, 100);
-    Sl(d, "contrast", 0x12, 0, 100);
-    Sl(d, "sharp", 0x87, 0, 100);
-    // v1.5.6 P2-5：AOC 的 gamma 原来错绑 0x73。0x73 是 MCCS 的 LPCM 音频码，
-    // 表现为"拖了 gamma 没反应"（实际在改音频参数）。改为与标准表一致的 0x72 枚举。
-    En(d, "gamma", 0x72, {80,100,120,140,160}, {"1.8","2.0","2.2","2.4","2.6"});
-    d["colortemp"] = ValSpec{ 0x14, 0, 100, 0, false, {}, {} };  // 值序未校准
+    Sl(d, "bright", 0x10, 0, 100);          // 【已验证】实测 cur=60 max=100
+    Sl(d, "contrast", 0x12, 0, 100);        // 【已验证】实测 50/100
+    // v1.6.7 删除：sharp(0x87)/gamma(0x72)——本机实测无此码（回包异常），菜单死行
+    // v1.6.7 色温校准：原「未校准滑条」改标准档位枚举（MCCS 2.2 Select color preset；
+    // 实测 cur=5=6500K 档，与 ASUS 系同族枚举吻合，max=11=0x0B 用户档）
+    En(d, "colortemp", 0x14, {0x04,0x05,0x06,0x08,0x0B},
+       {"5000K","6500K","7500K","9300K","用户"});
+    Sl(d, "uR", 0x16, 0, 100);              // 【已验证】用户红增益（实测 max=100，非 255）
+    Sl(d, "uG", 0x18, 0, 100);              // 【已验证】用户绿增益
+    Sl(d, "uB", 0x1A, 0, 100);              // 【已验证】用户蓝增益
     En(d, "dmode", 0xDC, {0x00,0x0B,0x0C,0x0D,0x0E,0x0F,0x10},
-       {"标准","FPS","RTS","赛车","电竞1","电竞2","游戏3"});
-    En(d, "input", 0x60, {0x01,0x03,0x0F,0x11,0x12}, {"VGA","DVI","DP","HDMI1","HDMI2"});
-    Sl(d, "volume", 0x62, 0, 100);
-    d["od"] = ValSpec{ 0xA8, 0, 100, 0, false, {}, {} };          // 值序未校准
-    Sl(d, "shadow", 0xE1, 0, 20);
-    En(d, "osdlock", 0xCA, {0x02,0x01,0x03}, {"正常","锁菜单(按键可用)","全锁(菜单+按键)"});
+       {"标准","FPS","RTS","赛车","电竞1","电竞2","游戏3"});   // 【已验证】实测 cur=0x10 max=0x10 与枚举吻合
+    En(d, "input", 0x60, {0x0F,0x11,0x12}, {"DP","HDMI1","HDMI2"});   // 实测 cur=0x0F max=0x12；VGA/DVI 本机不支持已剔除
+    // v1.6.11 删除 volume(0x62)——用户要求去掉音量控制（写入本身有效，需要时可加回）。
+    En(d, "mute", 0x8D, {0x01,0x02}, {"静音","取消静音"});            // 【待验证】MCCS 音频静音（ASUS 同码先验），写入/恢复双向成功
+    // v1.6.10 实验 sat(0x20) 用户实测拖动无效果 → v1.6.11 删除。0x20 写入被 ACK 但语义无效
+    //（MCCS 标准该位为水平频率只读）。显示器 OSD 里的饱和度（1-20 档）为 G-Menu 私有通道，
+    // caps 声明的枚举码均已识别/排除，无对应 DDC 码，不再尝试。
+    // v1.6.8 删除：ratio(0x86)/shadowR(0x6C)/shadowG(0x6E)/shadowB(0x70)——调整无视觉效果
+    // v1.6.7 删除：od(0xA8)/shadow(0xE1)——本机实测无此码
+    En(d, "osdlock", 0xCA, {0x02,0x01}, {"正常","锁菜单(按键可用)"}); // 实测 max=2：旧表 0x03「全锁」本机不支持，已剔除
     return d;
 }
 static SpecMap MakeGeneric() {
@@ -953,17 +969,20 @@ static std::vector<Group> BuildMenu(int brand) {
         // 参数页不再出现功能项卡（恢复出厂/扫描器/校准入口在系统管理页与托盘均可达）
         auto& s = grp("SYSTEM", "系统管理");
         sysActs(s);
-    } else if (brand == 3) { // AOC
+    } else if (brand == 3) { // AOC/AGON（v1.6.7 按 AG276QKD 实机重组；v1.6.8 删 ratio/黑阶三行死项；
+                             // v1.6.11 删饱和度实验行(0x20 无效果)与音量(用户要求)）
         auto& g1 = grp("GAME", "游戏");
         leaf(g1, "DISPLAY MODE", "显示模式", "dmode");
-        leaf(g1, "SHADOW CONTROL", "暗部控制", "shadow");
-        leaf(g1, "OVERDRIVE", "响应加速", "od");
         auto& g2 = grp("IMAGE", "图像");
         leaf(g2, "BRIGHTNESS", "亮度", "bright");
         leaf(g2, "CONTRAST", "对比度", "contrast");
-        leaf(g2, "SHARPNESS", "锐利度", "sharp");
-        leaf(g2, "GAMMA", "伽马", "gamma");
-        leaf(g2, "COLOR TEMP", "色温", "colortemp");
+        auto& g3 = grp("COLOR", "色彩");
+        leaf(g3, "COLOR TEMP", "色温", "colortemp");
+        leaf(g3, "USER Red", "用户红增益", "uR");
+        leaf(g3, "USER Green", "用户绿增益", "uG");
+        leaf(g3, "USER Blue", "用户蓝增益", "uB");
+        auto& g4 = grp("AUDIO", "音频");
+        leaf(g4, "MUTE", "静音", "mute");
         auto& s = grp("SYSTEM", "系统管理");
         leaf(s, "OSD LOCK", "OSD/按键锁定", "osdlock");
         act(s, "RESET ALL", "恢复出厂设置", "resetall");
@@ -1264,6 +1283,9 @@ static void LoadDdcCache(MonitorDev* m) {
       for (auto& kv : cvals) m->cache[kv.first] = kv.second; }
 }
 static void SaveDdcCacheAll(const std::vector<MonitorDev*>& mons) {
+    // v1.6.9：并发调用互斥（AfterCapsReady 后台补读落盘 vs StartProbe 探测落盘），
+    // 整个「读-合并-写」过程串行化，避免后写覆盖先写丢更新
+    std::lock_guard<std::mutex> lk(g_cacheSaveMx);
     // 累积合并：离线型号的缓存条目原样保留（换接显示器不丢，接回免重探），在线条目覆盖更新。
     // 旧键经 NormalizeAnyKey 归一；无法归一的丢弃。
     std::string old;
@@ -2123,22 +2145,22 @@ static std::vector<Group> BuildCapsMenu(MonitorDev* m) {
     g.erase(std::remove_if(g.begin(), g.end(), [](const Group& G) { return G.items.empty(); }), g.end());
     return g;
 }
-// LoadCaps 前置声明（LoadCapsBounded 看门狗线程引用）
+// LoadCaps 前置声明（LoadCapsAsync 后台线程引用）
 static void LoadCaps(MonitorDev* m);
-// LoadCaps 带看门狗：caps 挂起的机型（部分 ZOWIE 批次）单次请求可阻塞远超预期，
-// 若放任其占用探测线程，缓存保存永远走不到 → 每次启动都全量探测。
-// 超时后放弃等待（分离线程继续跑完，结果经 infoMx 锁自行写入，随下一次保存落盘）。
-static void LoadCapsBounded(MonitorDev* m, int ms) {
-    auto done = std::make_shared<std::atomic<bool>>(false);
-    // v1.5.8 P1-4：线程持引用；即使看门狗超时返回、调用方随后 retire 该对象，
-    // LoadCaps 也不会踩到已释放内存（原先超时后分离线程继续跑，正是崩溃窗口）
+// v1.6.9 前置声明：caps 就绪后的收尾（通知界面重建菜单 + 补读 caps 声明码）。
+// 定义在 g_hwnd / g_probeGen / g_uiAlive 声明之后（此处尚不可见）。
+static void AfterCapsReady(MonitorDev* m);
+// v1.6.9：caps 查询改纯后台（原 LoadCapsBounded 带看门狗同步等待最多 6s，caps 慢的
+// 机型会拖住探测线程，深探测被推迟 6s 才开始）。分离线程照常跑 LoadCaps，结果经
+// infoMx 锁自行写入；就绪后由 AfterCapsReady 收尾（通知界面 + 补读声明码）。
+// AddRef/Release 引用计数保留（v1.5.8 P1-4）：即使调用方随后 retire 该对象，
+// LoadCaps 也不会踩到已释放内存。
+static void LoadCapsAsync(MonitorDev* m) {
     m->AddRef();
-    std::thread([m, done]() {
+    std::thread([m]() {
         LoadCaps(m);
-        done->store(true);
         m->Release();
     }).detach();
-    for (int i = 0; i < ms / 50 && !done->load(); i++) Sleep(50);
 }
 static void LoadCaps(MonitorDev* m) {
     // DDC 读取只持 g_bus；解析在锁外做，结果短锁提交——infoMx 不跨 DDC I/O（否则 UI 布局取锁排队秒级卡顿）
@@ -2204,6 +2226,16 @@ static void LoadCaps(MonitorDev* m) {
             m->supported = std::move(supported);
             m->allowed = std::move(allowed);
         }
+        // v1.6.9：caps 就绪 → 收尾（通知界面重建菜单 + 后台补读 caps 声明码）。
+        // 原深探测流程靠 StartProbe 同步等待 caps，caps 纯后台化后由这里补齐。
+        {
+            std::string cm;
+            size_t n = 0;
+            { std::lock_guard<std::recursive_mutex> il(m->infoMx); cm = m->capModel; n = m->supported.size(); }
+            LogLine(std::string("探测: caps 就绪（型号 ") + (cm.empty() ? "未知" : cm) +
+                    "，声明 " + std::to_string(n) + " 码），后台补读中");
+        }
+        AfterCapsReady(m);
     }
 probe:
     unsigned c, x;
@@ -2495,7 +2527,7 @@ static IWICImagingFactory* g_wic = nullptr;
 static float g_scale = 1.f;
 static int g_W = 0, g_H = 0;
 static MonitorDev* g_cur = nullptr;
-static int g_page = 0;             // 0=参数设置 1=系统管理
+static int g_page = 0;             // 0=参数设置 1=系统管理 2=关于（v1.6.8）
 static std::atomic<bool> g_probing{true};   // v1.6.4：缓存富足时由探测线程直接放行主界面（跨线程写）
 static bool g_deepDone = false;   // v1.5.9：深探测（caps+全码）是否真正跑完
 // v1.5.8 P1-4：探测代数。每次 StartProbe 递增，完成信号带上启动时的代数；
@@ -2529,7 +2561,9 @@ static bool g_draggingSlider = false;
 static Item* g_dragItem = nullptr;
 static std::vector<Group> g_menu;
 static std::vector<RECT> g_monRects;
-static RECT g_tabP, g_tabS, g_btnSave, g_btnRestore, g_btnClose, g_btnMin;
+static RECT g_tabP, g_tabS, g_tabA, g_btnSave, g_btnRestore, g_btnClose, g_btnMin;
+static RECT g_aboutBtnUpd, g_aboutBtnLog, g_aboutBtnFb;   // v1.6.8 关于页按钮；v1.6.11 内联更新中心（主按钮/查看日志/反馈）
+static RECT g_aboutLnkDir, g_aboutLnkLog, g_aboutLnkCopy; // v1.6.11 关于页三链接（打开目录/查看日志/复制版本信息）
 static RECT g_btnDbg;                 // 标题栏「调试」按钮（品牌界面预览）
 static int g_contentW = 800;
 static ULONGLONG g_toastUntil = 0;
@@ -2541,6 +2575,39 @@ static float S(float v) { return v * g_scale; }
 static int SI(int v) { return (int)(v * g_scale + 0.5f); }
 
 static void Invalidate() { if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE); }
+
+// v1.6.9：caps 后台就绪后的收尾（LoadCaps 成功解析 caps 后调用，与调用方同线程执行）。
+//  1) 通知界面用新 caps 重建菜单（allowed 过滤生效）：带当前探测代数，期间若发生重探
+//     gen 已变，WM_APP+6 处理端按代数校验丢弃，无副作用。
+//  2) caps 声明码补读入缓存：caps 晚到时 ProbeMonitor（菜单码 ∪ 当时的 supported）已跑完，
+//     supported 中非菜单码部分没读过——逐个补读写入 cache/cacheMax（约 35 码 × 61ms ≈ 2s，
+//     纯后台无感知）。复用 MonitorDev::Read 现有封装（内部自持 g_bus 并按写后保护窗口写缓存），
+//     不引入新锁序。补读完成后单机落盘（SaveDdcCacheAll 收集合，临时 vector{m} 传入）。
+// LoadCaps 也被 CLI /detect 等路径调用：CLI 无窗口（g_hwnd 空）→ 只补读不通知，不影响 CLI。
+static void AfterCapsReady(MonitorDev* m) {
+    if (m->retired.load()) return;
+    // 先通知界面用新 caps 重建菜单：菜单码值此时已在缓存（ProbeMonitor 先行），allowed
+    // 过滤立即生效；声明码补读再慢也不拖界面。带当前探测代数，期间若发生重探 gen 已变，
+    // WM_APP+6 处理端按代数校验丢弃，无副作用。
+    if (g_hwnd && g_uiAlive.load())
+        PostMessageW(g_hwnd, WM_APP + 6, (WPARAM)g_probeGen.load(), 0);
+    // caps 晚到时 ProbeMonitor 已跑完，supported 中不在 cache 的码逐个补读
+    std::vector<int> missing;
+    { std::lock_guard<std::recursive_mutex> il(m->infoMx);
+      for (int code : m->supported)
+          if (m->cache.find(code) == m->cache.end()) missing.push_back(code); }
+    if (!missing.empty()) {
+        unsigned c = 0, mx = 0;
+        int got = 0;
+        for (int code : missing) {
+            if (m->retired.load()) return;      // 补读中途退役：立即放弃（对象由 Release 配对负责）
+            if (m->Read(code, c, mx)) got++;    // updateCache=true：命中即写入 cache/cacheMax
+        }
+        SaveDdcCacheAll(std::vector<MonitorDev*>{ m });
+        LogLine("探测: caps 声明码补读完成（" + std::to_string(got) + "/" +
+                std::to_string(missing.size()) + " 码）");
+    }
+}
 
 // ================= 分辨率 / 刷新率（系统级显示模式，非 DDC）=================
 struct ResOpt { int w, h; };
@@ -2643,7 +2710,7 @@ struct UpdateUi {
     std::string feedbackState;
 };
 extern UpdateUi g_upd;
-static void OpenUpdateWindow(int tab);
+static void OpenUpdateWindow();   // v1.6.12：弹窗精简为纯「意见反馈」窗口（更新中心/关于已内联主窗口「关于」页签）
 static void CheckUpdateAsync(bool userTriggered);
 static void SubmitFeedbackAsync(const std::string& text, int type, bool withLog);
 static void OpenToolsWindow(int tab);
@@ -2887,8 +2954,19 @@ static std::string LogoKeyOf(MonitorDev* m) {
     if (vendor == "BNQ" || Contains(hay, "ZOWIE") || Contains(hay, "BENQ")) return "ZOWIE";
     if (vendor == "ACI" || vendor == "ASU" || vendor == "AUS" || Contains(hay, "ASUS") || Contains(hay, "ROG ")) return "ASUS";
     if (vendor == "AWR" || Contains(hay, "ALIENWARE") || Contains(hay, "ALIEN ")) return "ALIEN";
-    if (vendor == "AOC" || vendor == "PHL")
-        return Contains(hay, "AGON") ? "AGON" : "AOC";
+    if (vendor == "AOC" || vendor == "PHL") {
+        // v1.6.9：爱攻（AGON）系列识别——描述含 AGON，或 EDID/caps 型号为 AG+数字
+        // （如 AG276QKD：这类机型 EDID/caps 里往往没有 AGON 字样）。逐字段判断而非对
+        // 拼接串 hay 做 "AG"+数字 匹配，避免品牌词误命中。字段在 infoMx 锁内读取（函数开头已持锁）。
+        bool agon = Contains(hay, "AGON");
+        if (!agon) {
+            for (const std::string* s : { &m->capModel, &m->edidModel }) {
+                const std::string& t = *s;
+                if (t.size() >= 3 && t[0] == 'A' && t[1] == 'G' && isdigit((unsigned char)t[2])) { agon = true; break; }
+            }
+        }
+        return agon ? "AGON" : "AOC";
+    }
     if (vendor == "HKC" || Contains(hay, "HKC")) return "HKC";
     if (vendor == "HUA" || Contains(hay, "HUAWEI") || Contains(hay, "HONOR")) return "HUAWEI";
     if (vendor == "MSI" || Contains(hay, "MSI")) return "MSI";
@@ -3036,7 +3114,8 @@ static void LayoutRowsPass(int offY) {
     int total = 0;
     for (auto& G : g_menu) {
         if ((g_page == 0 && strcmp(G.en, "SYSTEM") == 0) ||
-            (g_page == 1 && strcmp(G.en, "SYSTEM") != 0)) continue;
+            (g_page == 1 && strcmp(G.en, "SYSTEM") != 0) ||
+            g_page >= 2) continue;   // v1.6.8：关于页不显示菜单卡片
         bool showUserRgb = ColortempIsUser();
         int rows = 0, extra = 0;
         for (auto& it : G.items) {
@@ -3154,12 +3233,14 @@ static void LayoutAll() {
     int W = g_W;
     g_contentW = (std::max)(520, W - SI(196) - SI(24));
 
-    // 页签（首项 x=206，第二项 = 206+文字宽+48；文字宽实测）
+    // 页签（首项 x=206，后续项 = 前项右缘+文字宽+48；文字宽实测）
     int tw1 = (int)MeasureW("参数设置", FUi(SI(12)));
     int tw2 = (int)MeasureW("系统管理", FUi(SI(12)));
+    int tw3 = (int)MeasureW("关于", FUi(SI(12)));
     int tx = SI(206);
     g_tabP = { tx, SI(38), tx + tw1 + 16, SI(38) + SI(34) };
     g_tabS = { g_tabP.right + SI(48), SI(38), g_tabP.right + SI(48) + tw2 + 16, SI(38) + SI(34) };
+    g_tabA = { g_tabS.right + SI(48), SI(38), g_tabS.right + SI(48) + tw3 + 16, SI(38) + SI(34) };
 
     // 标题栏按钮（调试入口已移除；品牌预览改由 config.json DebugBrand 字段控制）
     g_btnClose = { W - SI(46), 0, W, SI(36) };
@@ -3372,12 +3453,14 @@ static void PaintTitleBar() {
     DrawT("✕", FUi(SI(12), false, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER), RectF(g_btnClose), closeC);
 }
 static void PaintTabs() {
-    bool a1 = g_page == 0, a2 = g_page == 1;
+    bool a1 = g_page == 0, a2 = g_page == 1, a3 = g_page == 2;
     DrawT("参数设置", FUi(SI(12), a1, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
           RectF(g_tabP), a1 ? Theme::TextPrimary : Theme::TextTertiary);
     DrawT("系统管理", FUi(SI(12), a2, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
           RectF(g_tabS), a2 ? Theme::TextPrimary : Theme::TextTertiary);
-    const RECT& bar = a1 ? g_tabP : g_tabS;
+    DrawT("关于", FUi(SI(12), a3, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+          RectF(g_tabA), a3 ? Theme::TextPrimary : Theme::TextTertiary);
+    const RECT& bar = a1 ? g_tabP : a2 ? g_tabS : g_tabA;
     RECT br = { bar.left - SI(8), SI(74), bar.right, SI(74) + SI(3) };
     FillRRect(br, 2.f, Theme::Accent);
 }
@@ -3425,18 +3508,30 @@ static void PaintMonitorCards() {
               FUi(SI(10), true, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
               RectF(badge), i == 0 ? Theme::OnAccent : Theme::TextTertiary);
 
-        // Logo（高 60，独占一行）+ 品牌名单独一行
+        // v1.6.8 Logo 显示修复：
+        //  1) 先铺一块浅色圆角底板——深色 logo 直接画在深色卡片上看不清；
+        //  2) 底板宽度给右上角主/副徽标留 34px，宽 logo 不再伸进徽标区（卡内宽约 146 < 旧上限 150）；
+        //  3) logo 在底板内四周内缩 8px 居中绘制。
         ID2D1Bitmap* logo = BrandLogo(m);
-        int lw = SI(60);
+        int bgW = (std::min)(SI(150), innerW - SI(34));
+        RECT logoBg = { cx, y, cx + bgW, y + SI(64) };
+        // v1.6.9：底板 = 浅白 与 品牌强调色按 9:1 混合（品牌色调浅底，避免纯白单调；深色 logo 仍清晰）
+        const Col bgBase = Col::Hex("#ECEDEF");
+        const Col logoBgCol{
+            bgBase.r * 0.9f + Theme::Accent.r * 0.1f,
+            bgBase.g * 0.9f + Theme::Accent.g * 0.1f,
+            bgBase.b * 0.9f + Theme::Accent.b * 0.1f };
+        FillRRect(logoBg, 10.f, logoBgCol);
         if (logo) {
             D2D1_SIZE_U px = logo->GetPixelSize();
             int pw = (int)px.width, ph = (int)px.height;
-            int boxW = (std::min)(SI(150), innerW), boxH = SI(60);
+            int boxW = bgW - SI(16), boxH = SI(48);
             float k = (pw && ph) ? (std::min)((float)boxW / pw, (float)boxH / ph) : 1.f;
             int iw = (int)(pw * k), ih = (int)(ph * k);
-            g_rt->DrawBitmap(logo, D2D1::RectF((float)cx, (float)y,
-                                               (float)(cx + iw), (float)(y + ih)));
-            lw = iw;
+            int lx0 = logoBg.left + (bgW - iw) / 2;       // 底板内水平居中
+            int ly0 = logoBg.top + (SI(64) - ih) / 2;     // 底板内垂直居中
+            g_rt->DrawBitmap(logo, D2D1::RectF((float)lx0, (float)ly0,
+                                               (float)(lx0 + iw), (float)(ly0 + ih)));
         } else {
             RECT logoR = { cx, y, cx + SI(60), y + SI(60) };
             FillRRect(logoR, 10.f, Theme::Accent);
@@ -3963,7 +4058,8 @@ static void PaintDisplayDropdown() {
 static void PaintContent() {
     for (auto& G : g_menu) {
         if ((g_page == 0 && strcmp(G.en, "SYSTEM") == 0) ||
-            (g_page == 1 && strcmp(G.en, "SYSTEM") != 0)) continue;
+            (g_page == 1 && strcmp(G.en, "SYSTEM") != 0) ||
+            g_page >= 2) continue;   // v1.6.8：关于页不画菜单卡片
         if (G.cardR.right <= 0) continue;   // 未布局（防御）
         FillRRect(G.cardR, 12.f, Theme::SurfaceGroup);
         for (auto& it : G.items)
@@ -3973,12 +4069,11 @@ static void PaintContent() {
 // ================= 系统管理页（显示器维护 / 校准向导 / 软件设置）=================
 // v1.2：按需求移除「基准与还原」卡（自动还原策略仍留在 config.json/后台，UI 不再露出）。
 struct SysUi {
-    RECT cardMaint, cardCal, cardSoft, cardUpd;    // cardUpd: 在线更新 / 反馈（v1.3）
+    RECT cardMaint, cardCal, cardSoft;             // （v1.6.12：cardUpd 在线更新卡已删——更新/反馈入口移至「关于」页签）
     RECT btnWake, btnReset, btnTest;               // 显示器维护
     std::vector<RECT> segLock;                     // OSD 锁定分段
     RECT btnCal;                                   // 校准向导
     RECT chkBoot, chkTray, capFollow;              // 软件设置
-    RECT btnCheckUpd, btnFeedback, btnAbout;       // 在线更新 / 反馈 / 关于
     RECT btnProfiles;                              // v1.6.7 已保存基准型号
     std::vector<RECT> swatches;                    // 强调色块
 };
@@ -4043,20 +4138,8 @@ static void LayoutSystem() {
         }
     }
     y += h4 + gap;
-
-    // ---- 卡5：在线更新 / 意见反馈 / 关于（v1.3）----
-    int h5 = SI(72);
-    g_sys.cardUpd = { x, y, x + cw, y + h5 };
-    {
-        int rw = (std::max)(SI(96), (int)MeasureW("意见反馈", FUi(SI(12), true)) + SI(26));
-        g_sys.btnFeedback = { x + cw - SI(14) - rw, y + SI(38), x + cw - SI(14), y + SI(38) + SI(30) };
-        int rw2 = (std::max)(SI(96), (int)MeasureW("检查更新", FUi(SI(12), true)) + SI(26));
-        g_sys.btnCheckUpd = { g_sys.btnFeedback.left - SI(10) - rw2, y + SI(38),
-                              g_sys.btnFeedback.left - SI(10), y + SI(38) + SI(30) };
-        int rw3 = (std::max)(SI(76), (int)MeasureW("关于", FUi(SI(12), true)) + SI(26));
-        g_sys.btnAbout = { g_sys.btnCheckUpd.left - SI(10) - rw3, y + SI(38),
-                           g_sys.btnCheckUpd.left - SI(10), y + SI(38) + SI(30) };
-    }
+    // v1.6.12：原「卡5：在线更新 / 意见反馈」已删除——更新与反馈入口全部收拢到
+    // 主窗口「关于」页签（更新中心内联 + 反馈表单弹窗），此处不再保留重复入口。
 }
 static void DrawChk(const RECT& hit, bool on, const char* label) {
     RECT box = { hit.left, hit.top + SI(5), hit.left + SI(16), hit.top + SI(21) };
@@ -4153,29 +4236,8 @@ static void PaintSystemPage() {
             }
         }
     }
-    // ---- 卡5：在线更新 / 意见反馈（v1.3）----
-    {
-        const RECT& c = g_sys.cardUpd;
-        FillRRect(c, 12.f, Theme::SurfaceGroup);
-        DrawT("在线更新", FUi(SI(12), true),
-              RectF({ c.left + SI(14), c.top + SI(8), c.right - SI(14), c.top + SI(28) }), Theme::TextPrimary);
-        D2D1_ELLIPSE dot = D2D1::Ellipse(D2D1::Point2F((float)(c.left + SI(38)), (float)(c.top + SI(52))), 3.5f, 3.5f);
-        int st;
-        EnterCriticalSection(&g_netCs);
-        st = g_upd.state;
-        std::string vm = g_upd.msg;
-        LeaveCriticalSection(&g_netCs);
-        Col dotC = st == UPD_ERROR ? Theme::Danger : st == UPD_READY ? Theme::Success
-                 : st == UPD_AVAILABLE ? Theme::Accent : Theme::TextMuted;
-        auto db = Brush(dotC);
-        g_rt->FillEllipse(dot, db); db->Release();
-        DrawT("当前 v" + std::string(kAppVersion) + " — " + vm,
-              FUi(SI(11)), RectF({ c.left + SI(50), c.top + SI(40), g_sys.btnAbout.left - SI(14), c.top + SI(64) }),
-              Theme::TextTertiary);
-        DrawBtn(g_sys.btnAbout, "关于", false);
-        DrawBtn(g_sys.btnCheckUpd, "检查更新", false);
-        DrawBtn(g_sys.btnFeedback, "意见反馈", false);
-    }
+    // v1.6.12：原「卡5：在线更新 / 意见反馈」绘制已删除（布局同步移除），
+    // 更新与反馈入口收拢到主窗口「关于」页签。
 }
 // ================= 在线更新 / 反馈（v1.3） =================
 // 协议契约（服务器：宝塔 + Nginx + PHP/静态，详见 docs/update-feedback-server.md）
@@ -4186,7 +4248,7 @@ static void PaintSystemPage() {
 static const char* const kDefaultUpdateBase = "https://osd.test.com/api";   // 上线前改成你的面板域名+路径
 static const char* const kFeedbackSalt      = "change-me-feedback-salt";    // 必须与 feedback.php 一致
 #ifndef APP_VERSION
-#define APP_VERSION "1.6.6"
+#define APP_VERSION "1.6.12"
 #endif
 static const char* const kAppVersion        = APP_VERSION;   // P0-2：build.bat 可注入版本号
 
@@ -4678,28 +4740,24 @@ static void ApplyUpdateAndRestart() {
 
 // ================= 更新 / 反馈窗口（GDI 双缓冲，无需 D2D） =================
 // 与主窗口分离：本窗口要能独立粘贴文本（Ctrl+V），且深/浅色主题下都固定深色卡片 + 高对比文字。
-static int  g_updTab = 0;                       // 0=更新 1=反馈 2=关于
+// v1.6.12：原三页签（软件更新/意见反馈/关于）精简为单一「意见反馈」页——
+// 更新中心与关于信息已内联主窗口「关于」页签，弹窗只剩反馈表单（自绘文本框需独立焦点处理）。
 static int  g_fbWithLog = 1;
 static bool g_fbFocus = false, g_fbLogFocus = false;
 static std::string g_fbLogInput;                // 补充信息（可粘贴）
-static std::string g_aboutCopied;               // 关于页复制回执
+static std::string g_aboutCopied;               // 复制回执（主窗口关于页「复制版本信息」用）
 static float g_uScale = 1.f;
 static int SUI(int v) { return (int)(v * g_uScale + 0.5f); }
-// 无边框窗口：自绘标题栏（拖拽/最小化/关闭），窗口大小固定不随页签变化
 static bool  g_titleDrag = false;               // 正在拖拽标题栏
 static POINT g_titleDragOrg = { 0, 0 };         // 拖拽起点（屏幕坐标）
 static RECT  r_titleBar{}, r_btnMin{}, r_btnClose{};
 static const int UW_TITLE_H = 34;               // 设计像素（未缩放）
 // 布局结果：坐标全部在 Paint 的 Layout() 里按内容流算出，交互与绘制共用同一份矩形
-static RECT r_btnPrimary{}, r_btnSecondary{}, r_tab[3] = {}, r_fbType[3] = {},
-            r_chkLog{}, r_editFb{}, r_editLog{}, r_prog{}, r_msg{},
-            r_lnkDir{}, r_lnkLog{}, r_lnkCopy{};
-static RECT r_box[4] = {}, r_notes{}, r_aboutMeta{}, r_aboutText{}, r_pageTitle{};
+static RECT r_btnPrimary{}, r_btnSecondary{}, r_fbType[3] = {},
+            r_chkLog{}, r_editFb{}, r_editLog{}, r_msg{}, r_pageTitle{};
 static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp);
 static void PaintUpdateWindow(HWND h);
 static std::string MonitorSnapshot();   // 定义在反馈模块（本文件后段）
-static std::string AboutText();
-static std::string AboutContact();
 
 static const COLORREF CW_BG      = RGB(0x0A, 0x0A, 0x0B);
 static const COLORREF CW_CARD    = RGB(0x15, 0x16, 0x18);
@@ -4791,13 +4849,7 @@ static void GCard(HDC dc, RECT r, COLORREF fill) {
     FrameRect(dc, &r, b);
     DeleteObject(b);
 }
-static void GBar(HDC dc, RECT r, int pct, COLORREF c) {
-    if (r.right <= r.left) return;
-    GFill(dc, r, CW_SUB);
-    RECT f = r;
-    f.right = r.left + (LONG)((r.right - r.left) * (pct < 0 ? 0 : pct > 100 ? 100 : pct) / 100);
-    if (f.right > f.left) GFill(dc, f, c);
-}
+// v1.6.12：GBar 进度条删除（仅「软件更新」页签使用，该页签已移除）
 
 // 内容流排版：一页一次算完，绘制/命中测试共用（旧版是 Paint 里临时算坐标，
 // 页签与标题各自硬编码 → 文字被压住、进度条压状态行，都是这么来的）
@@ -4808,7 +4860,7 @@ struct UpdLayout {
     void Row(int hgt) { y += hgt; }
 };
 static void LayoutCommon(UpdLayout& L) {
-    // 无边框窗口：顶部先让出自绘标题栏，之后才是标题 → 副行（版本 + 状态）→ 页签
+    // 无边框窗口：顶部先让出自绘标题栏，之后才是标题 → 副行（当前版本）
     // 标题栏：左侧程序名，右侧最小化/关闭按钮
     r_titleBar = { 0, 0, L.W, SUI(UW_TITLE_H) };
     {
@@ -4818,25 +4870,13 @@ static void LayoutCommon(UpdLayout& L) {
         r_btnMin   = { r_btnClose.left - SUI(6) - bs, by, r_btnClose.left - SUI(6), by + bs };
     }
     L.y = r_titleBar.bottom + SUI(12);
-    if (g_updTab == 2) {
-        // 关于页不需要大标题与版本副行：顶栏已有程序名、卡片里有 vX.Y.Z，再重复纯属浪费空间
-        r_pageTitle = {};
-        r_msg = {};
-    } else {
-        int titleH = GLineH(L.dc, L.fTitle);
-        r_pageTitle = { L.pad, L.y, L.W - L.pad, L.y + titleH };
-        L.y += titleH + SUI(4);
-    }
+    int titleH = GLineH(L.dc, L.fTitle);
+    r_pageTitle = { L.pad, L.y, L.W - L.pad, L.y + titleH };
+    L.y += titleH + SUI(4);
 
-    // 副行：左侧「当前版本」；右侧状态点 + 状态文字（单行省略，不再被进度条压）
+    // 副行：当前版本（原右侧「状态点 + 更新消息」随更新中心页签一并移除）
     RECT sub = { L.pad, L.y, L.W - L.pad, L.y + GLineH(L.dc, L.fSmall) };
     L.y += (sub.bottom - sub.top) + SUI(10);
-
-    // 页签（三个，等宽，靠左）
-    int tw = SUI(84), th = SUI(30);
-    for (int i = 0; i < 3; i++)
-        r_tab[i] = { L.pad + i * (tw + SUI(6)), L.y, L.pad + i * (tw + SUI(6)) + tw, L.y + th };
-    L.y += th + SUI(14);
     r_msg = sub;
 }
 static void LayoutFooter(UpdLayout& L, bool hasSecondary) {
@@ -4845,59 +4885,10 @@ static void LayoutFooter(UpdLayout& L, bool hasSecondary) {
     int by = L.H - L.pad - bh;
     r_btnPrimary = { L.W - L.pad - SUI(124), by, L.W - L.pad, by + bh };
     if (hasSecondary) {
-        int sw = (g_updTab == 2) ? SUI(96) : SUI(108);
-        r_btnSecondary = { r_btnPrimary.left - SUI(10) - sw, by, r_btnPrimary.left - SUI(10), by + bh };
-        // 关于页两个链接放左侧底部，避免和按钮挤在一起
-        if (g_updTab == 2) {
-            int lh = SUI(24);
-            int lw = SUI(104);
-            r_lnkDir  = { L.pad, by + (bh - lh) / 2, L.pad + lw, by + (bh - lh) / 2 + lh };
-            r_lnkLog  = { r_lnkDir.right + SUI(8), r_lnkDir.top, r_lnkDir.right + SUI(8) + lw, r_lnkDir.bottom };
-            r_lnkCopy = { r_lnkLog.right + SUI(8), r_lnkDir.top, r_lnkLog.right + SUI(8) + lw, r_lnkDir.bottom };
-        } else {
-            r_lnkDir = r_lnkLog = r_lnkCopy = {};
-        }
+        r_btnSecondary = { r_btnPrimary.left - SUI(10) - SUI(108), by, r_btnPrimary.left - SUI(10), by + bh };
     } else {
         r_btnSecondary = {};
-        r_lnkDir = r_lnkLog = r_lnkCopy = {};
     }
-}
-static void LayoutUpdatePage(UpdLayout& L, const UpdateInfo& ui) {
-    LayoutCommon(L);
-    int st = g_upd.state;
-    int pct = st == UPD_CHECKING ? 30 : st == UPD_DOWNLOADING ? g_upd.progress
-            : st == UPD_READY ? 100 : st == UPD_AVAILABLE ? 100 : 0;
-    // 进度条只在「检查/下载/就绪」时出现，避免空闲态挂一根空槽
-    if (st == UPD_CHECKING || st == UPD_DOWNLOADING || st == UPD_READY || st == UPD_AVAILABLE) {
-        r_prog = { L.pad, L.y, L.W - L.pad, L.y + SUI(4) };
-        L.y += SUI(4) + SUI(10);
-    } else {
-        r_prog = {};
-    }
-    // 四宫格信息卡：两列两行，等高
-    int gap = SUI(10);
-    int bw = (L.contentW - gap) / 2, bh = SUI(52);
-    for (int r2 = 0; r2 < 2; r2++)
-        for (int c2 = 0; c2 < 2; c2++) {
-            int i = r2 * 2 + c2;
-            r_box[i] = { L.x + c2 * (bw + gap), L.y + r2 * (bh + gap),
-                         L.x + c2 * (bw + gap) + bw, L.y + r2 * (bh + gap) + bh };
-        }
-    L.y += bh * 2 + gap + SUI(10);
-    // 更新说明：吃掉剩余高度（内容不足也不会空成一片，边框贴住按钮区）
-    LayoutFooter(L, true);
-    // 更新说明按内容定高（空说明就只占一行高度），避免下方拉出一大块空框
-    int bodyW = L.W - L.pad * 2 - SUI(24);
-    int need = SUI(26);
-    if (ui.notes.empty()) need += GLineH(L.dc, L.fBody) + SUI(6);
-    else for (auto& n : ui.notes) need += GTxtH(L.dc, L.fBody, "• " + n, bodyW);
-    need += SUI(10);
-    // 说明卡填满到按钮上沿：窗口固定尺寸，若只按内容定高会在下方留一大块空洞
-    int cap = r_btnPrimary.top - SUI(14) - L.y;
-    if (cap < SUI(74)) cap = SUI(74);
-    if (need > cap) need = cap;
-    if (need < cap) need = cap;               // 有内容/无内容都铺满，视觉上一体
-    r_notes = { L.x, L.y, L.W - L.pad, L.y + need };
 }
 static void LayoutFeedbackPage(UpdLayout& L) {
     LayoutCommon(L);
@@ -4919,24 +4910,10 @@ static void LayoutFeedbackPage(UpdLayout& L) {
     if (fbh < SUI(110)) fbh = SUI(110);
     r_editFb = { L.x, L.y, L.W - L.pad, L.y + fbh };
 }
-static void LayoutAboutPage(UpdLayout& L) {
-    LayoutCommon(L);
-    LayoutFooter(L, true);
-    int bottom = r_btnPrimary.top - SUI(12);
-    // 元信息卡（程序名/版本/构建/环境），随后是说明文本
-    // 卡片高度 = 两行文字（H2 + 小字）+ 上下留白，随字体行高自适应
-    int bh = GLineH(L.dc, L.fH2) + GLineH(L.dc, L.fSmall) + SUI(22);
-    r_aboutMeta = { L.x, L.y, L.W - L.pad, L.y + bh };
-    // 说明卡片吃掉「元信息卡之下到按钮之上」的全部高度：
-    // 固定小窗口里若按内容定高，多出的空间会变成空洞；按剩余高度给则排版始终铺满
-    int top = L.y + bh + SUI(10);
-    r_aboutText = { L.x, top, L.W - L.pad, (std::max)(top + SUI(70), bottom) };
-}
-// 固定窗口尺寸（设计像素）：三个页签共用同一个窗口，不再随内容变高变矮。
-// 高度取「反馈页」所需（最宽裕的那页），其余页下方留白，视觉上不跳。
+// v1.6.12：LayoutAboutPage / AboutText / AboutContact 删除（关于页内联进主窗口「关于」页签）
+// 固定窗口尺寸（设计像素）：不再随内容变高变矮。
 // 窗口尺寸（设计像素，相对主窗口 1152×712 而言的「对话框」尺寸，约为主窗口的 3/4）
 static const int UW_CLIENT_W = 640;   // 布局基准宽（设计像素）：与目标窗口宽一致，g_uScale = clientW/640
-static const int UW_CLIENT_H = 520;
 static void LayoutUpdateWindow(HWND h) {
     RECT rc; GetClientRect(h, &rc);
     // 缩放只看宽度：窗口是固定大小，高度不再参与（否则改高度会让字号跳变）
@@ -4944,31 +4921,13 @@ static void LayoutUpdateWindow(HWND h) {
     if (g_uScale < 0.85f) g_uScale = 0.85f;
     if (g_uScale > 1.60f) g_uScale = 1.60f;
 }
-static std::string AboutText() {
-    // 窗口尺寸固定，正文只能占「元信息卡」与「作者行」之间的高度（约 5 行正文）。
-    // 超了就会被裁，所以只写三句：是什么、支持什么、注意什么。
-    return
-        "网吧与电竞馆的显示器统一管理工具。通过 DDC/CI 直接读写 MCCS 参数，"
-        "无需厂商驱动，亮度、对比度、色温、输入源一处调完，多机位一次配好。\r\n\r\n"
-        "支持绝大多数 2010 年后开启 DDC/CI 的液晶显示器；个别固件会保护写入，"
-        "程序会明确提示，不会假装成功。\r\n\r\n"
-        "写入后若画面异常，重启显示器即可恢复；请勿在 OSD Lock 状态下批量写入。";
-}
 // 作者与联系方式（发版前改成你自己的；留空则该行不显示）
 static const char* const kAuthorName  = "咸鱼工作室";
 static const char* const kAuthorQQ    = "";
 static const char* const kAuthorWeChat = "";
 static const char* const kAuthorEmail = "";
 static const char* const kAuthorSite  = "";
-static std::string AboutContact() {
-    std::string t = std::string("作者：") + kAuthorName;
-    std::string extra;
-    if (kAuthorQQ[0])     extra += std::string("　QQ ") + kAuthorQQ;
-    if (kAuthorWeChat[0]) extra += std::string("　微信 ") + kAuthorWeChat;
-    if (kAuthorEmail[0])  extra += std::string("　邮箱 ") + kAuthorEmail;
-    if (kAuthorSite[0])   extra += std::string("　") + kAuthorSite;
-    return t + extra;
-}
+// v1.6.12：AboutContact 删除（弹窗关于页移除；作者信息在主窗口「关于」页签由 kAuthor* 常量直接渲染）
 struct AboutMeta { std::string name, version, build, env, path; };
 static AboutMeta CollectAboutMeta() {
     AboutMeta m;
@@ -5044,15 +5003,11 @@ static void PaintUpdateWindow(HWND h) {
     L.fMono  = MkFont(SUI(11), false, true);
 
     EnterCriticalSection(&g_netCs);
-    int state = g_upd.state, prog = g_upd.progress;
-    std::string msg = g_upd.msg, fbState = g_upd.feedbackState;
-    UpdateInfo ui = g_upd.info;
+    std::string fbState = g_upd.feedbackState;
     LeaveCriticalSection(&g_netCs);
 
-    // ---- 按页签排版（先算坐标，再画）----
-    if (g_updTab == 0)      LayoutUpdatePage(L, ui);
-    else if (g_updTab == 1) LayoutFeedbackPage(L);
-    else                    LayoutAboutPage(L);
+    // ---- 排版（先算坐标，再画）；v1.6.12 起固定为反馈页 ----
+    LayoutFeedbackPage(L);
 
     GFill(dc, rc, CW_BG);
 
@@ -5093,85 +5048,13 @@ static void PaintUpdateWindow(HWND h) {
         winBtn(r_btnClose, true);
     }
 
-    // 标题 + 副行
-    const char* titles[3] = { "更新中心", "意见反馈", "关于 MonitorOSD" };
-    GTxt(dc, titles[g_updTab], r_pageTitle, CW_TEXT, L.fTitle);
-    // 窗口标题跟着页签走，任务栏/Alt+Tab 里也能一眼看出在哪页（仅首次创建时设置）
-    static int s_lastTitleTab = -1;
-    if (s_lastTitleTab != g_updTab) {
-        s_lastTitleTab = g_updTab;
-        const wchar_t* wt[3] = { L"MonitorOSD · 更新", L"MonitorOSD · 意见反馈", L"MonitorOSD · 关于" };
-        SetWindowTextW(h, wt[g_updTab]);
-    }
-    // 副行左：版本；右：状态点 + 状态（单行省略，不与进度条重叠）
-    {
-        RECT sub = r_msg;
-        if (g_updTab != 2) {
-            GTxt(dc, std::string("当前版本 v") + kAppVersion, sub, CW_MUTED, L.fSmall,
-                 DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        }
-        if (g_updTab == 0 && !msg.empty()) {
-            RECT stR = { sub.left + SUI(150), sub.top, sub.right, sub.bottom };
-            GTxt(dc, msg, stR, state == UPD_ERROR ? CW_ACCENT : CW_TEXT2, L.fSmall,
-                 DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-    }
-    // 页签
-    const char* tabLabels[3] = { "软件更新", "意见反馈", "关于" };
-    for (int i = 0; i < 3; i++) {
-        bool on = g_updTab == i;
-        GCard(dc, r_tab[i], on ? CW_ACCENT : CW_SUB);
-        GTxt(dc, tabLabels[i], r_tab[i], on ? RGB(255, 255, 255) : CW_TEXT2, L.fBody,
-             DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    }
+    // 标题 + 副行（v1.6.12：单页固定「意见反馈」，窗口标题在创建时已设置）
+    GTxt(dc, "意见反馈", r_pageTitle, CW_TEXT, L.fTitle);
+    // 副行：当前版本
+    GTxt(dc, std::string("当前版本 v") + kAppVersion, r_msg, CW_MUTED, L.fSmall,
+         DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-    if (g_updTab == 0) {
-        // 进度条
-        if (r_prog.right > r_prog.left) {
-            COLORREF pc = state == UPD_ERROR ? CW_ACCENT : state == UPD_READY ? CW_OK : CW_ACCENT;
-            int pct = state == UPD_CHECKING ? 35 : state == UPD_DOWNLOADING ? prog
-                    : (state == UPD_READY || state == UPD_AVAILABLE) ? 100 : 0;
-            GBar(dc, r_prog, pct, pc);
-        }
-        // 四宫格
-        const char* t[4] = { "最新版本", "更新通道", "安装包大小", "完整性校验" };
-        std::string v[4] = {
-            ui.version.empty() ? "—" : "v" + ui.version,
-            g_config.updateChannel.empty() ? "latest" : g_config.updateChannel,
-            ui.size > 0 ? (std::to_string((long long)((ui.size + 512 * 1024) / 1024 / 1024)) + " MB") : "—",
-            ui.sha256.empty() ? "待服务器提供 SHA-256" : "SHA-256 已就绪"
-        };
-        for (int i = 0; i < 4; i++) {
-            if (r_box[i].right <= r_box[i].left) continue;
-            GCard(dc, r_box[i], CW_CARD);
-            GTxt(dc, t[i], { r_box[i].left + SUI(12), r_box[i].top + SUI(7),
-                             r_box[i].right - SUI(12), r_box[i].top + SUI(23) }, CW_MUTED, L.fSmall);
-            GTxt(dc, v[i], { r_box[i].left + SUI(12), r_box[i].top + SUI(24),
-                             r_box[i].right - SUI(12), r_box[i].bottom - SUI(8) },
-                 CW_TEXT, L.fBody, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-        // 更新说明
-        if (r_notes.bottom > r_notes.top + SUI(30)) {
-            GCard(dc, r_notes, CW_CARD);
-            GTxt(dc, "更新说明", { r_notes.left + SUI(12), r_notes.top + SUI(8),
-                                   r_notes.right - SUI(12), r_notes.top + SUI(24) }, CW_MUTED, L.fSmall);
-            std::string notes;
-            if (ui.notes.empty()) notes = "—";
-            else for (auto& n : ui.notes) notes += "• " + n + "\r\n";
-            GTxt(dc, notes, { r_notes.left + SUI(12), r_notes.top + SUI(26),
-                              r_notes.right - SUI(12), r_notes.bottom - SUI(8) },
-                 CW_TEXT2, L.fBody, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL);
-        }
-        // 按钮
-        bool hot = (state == UPD_AVAILABLE || state == UPD_READY);
-        GCard(dc, r_btnPrimary, hot ? CW_ACCENT : CW_SUB);
-        const char* pl = state == UPD_AVAILABLE ? "立即更新" : state == UPD_READY ? "重启并完成更新"
-                       : state == UPD_CHECKING ? "检查中…" : state == UPD_DOWNLOADING ? "下载中…" : "检查更新";
-        GTxt(dc, pl, r_btnPrimary, hot ? RGB(255, 255, 255) : CW_TEXT2, L.fBtn,
-             DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        GCard(dc, r_btnSecondary, CW_SUB);
-        GTxt(dc, "查看更新日志", r_btnSecondary, CW_TEXT2, L.fBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    } else if (g_updTab == 1) {
+    if (true) {
         // 正文
         GCard(dc, r_editFb, CW_CARD);
         RECT er = { r_editFb.left + SUI(12), r_editFb.top + SUI(10),
@@ -5232,78 +5115,8 @@ static void PaintUpdateWindow(HWND h) {
         GTxt(dc, "提交反馈", r_btnPrimary, RGB(255, 255, 255), L.fBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         GCard(dc, r_btnSecondary, CW_SUB);
         GTxt(dc, "清空", r_btnSecondary, CW_TEXT2, L.fBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    } else {
-        // ---- 关于页 ----
-        AboutMeta m = CollectAboutMeta();
-        GCard(dc, r_aboutMeta, CW_CARD);
-        // 左：程序名 + 版本；右：构建时间 + 运行环境。
-        // v1.5.9：位置按「实际行高」排列，不再写死 9/30/32 —— 换成 NotoSC 后行高变大，
-        // 固定偏移会把下面的版本号挤出卡片（截图里 v1.5.9 被裁掉就是这个原因）。
-        {
-            int hH2 = GLineH(dc, L.fH2), hSm = GLineH(dc, L.fSmall);
-            int padY = (std::max)(0, (int)((r_aboutMeta.bottom - r_aboutMeta.top) - (hH2 + hSm)) / 2);
-            int ly = r_aboutMeta.top + padY;
-            GTxt(dc, m.name, { r_aboutMeta.left + SUI(14), ly,
-                               r_aboutMeta.left + SUI(220), ly + hH2 }, CW_TEXT, L.fH2);
-            GTxt(dc, m.version, { r_aboutMeta.left + SUI(14), ly + hH2,
-                                  r_aboutMeta.right - SUI(14), ly + hH2 + hSm },
-                 CW_ACCENT, L.fSmall);
-            GTxt(dc, m.build.empty() ? "" : ("构建 " + m.build),
-                 { r_aboutMeta.right - SUI(270), ly, r_aboutMeta.right - SUI(14), ly + hSm },
-                 CW_TEXT2, L.fSmall, DT_RIGHT | DT_TOP | DT_SINGLELINE);
-            GTxt(dc, m.env, { r_aboutMeta.right - SUI(270), ly + hSm,
-                              r_aboutMeta.right - SUI(14), ly + hSm * 2 },
-                 CW_MUTED, L.fSmall, DT_RIGHT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-        // 说明正文
-        if (r_aboutText.bottom > r_aboutText.top + SUI(20)) {
-            GCard(dc, r_aboutText, CW_CARD);
-            RECT ar = { r_aboutText.left + SUI(14), r_aboutText.top + SUI(12),
-                        r_aboutText.right - SUI(14), r_aboutText.bottom - SUI(10) };
-            // 正文按「实际需要高度」给定：可用区放得下就全显示，放不下才截断。
-            // 之前用固定 reserve 再截断，文本来得及显示的空间被无谓吃掉。
-            std::string body = AboutText();
-            int avail = ar.bottom - ar.top;
-            int needH = GTxtH(dc, L.fBody, body, ar.right - ar.left);
-            int contH = GLineH(dc, L.fBody) + SUI(4);       // 作者行一行
-            if (needH + contH + SUI(16) > avail) {
-                // 空间不足：逐字回退到能放下为止（按 UTF-8 字符边界，避免中文乱码）
-                int room = avail - contH - SUI(22);
-                while (!body.empty() && GTxtH(dc, L.fBody, body + "……", ar.right - ar.left) > room) {
-                    size_t cut = body.size() - 1;
-                    while (cut > 0 && ((unsigned char)body[cut] & 0xC0) == 0x80) cut--;
-                    body.erase(cut);
-                }
-                if (body.size() < AboutText().size()) body += "……";
-            }
-            RECT mr = ar;
-            mr.bottom = ar.top + GTxtH(dc, L.fBody, body, ar.right - ar.left);
-            GTxt(dc, body, mr, CW_TEXT2, L.fBody, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_EDITCONTROL);
-            // 作者行固定在卡片底部（不跟随正文，避免正文变长把它挤出去）
-            RECT cr = { ar.left, ar.bottom - contH, ar.right, ar.bottom };
-            GFill(dc, { cr.left, cr.top - SUI(7), cr.right, cr.top - SUI(6) }, CW_LINE);
-            GTxt(dc, AboutContact(), cr, CW_TEXT, L.fBody, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-        // 底部三个文字链接（贴左侧，和右侧按钮同一水平线）
-        auto link = [&](RECT r, const char* label, bool hot) {
-            HTHEME ht = nullptr; (void)ht;
-            GTxt(dc, label, r, hot ? CW_TEXT : CW_MUTED, L.fSmall,
-                 DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            // 下划线提示可点击
-            HBRUSH b = CreateSolidBrush(hot ? CW_TEXT : CW_LINE);
-            RECT u = { r.left + SUI(6), r.bottom - SUI(4), r.right - SUI(6), r.bottom - SUI(3) };
-            FillRect(dc, &u, b);
-            DeleteObject(b);
-        };
-        POINT cur; GetCursorPos(&cur); ScreenToClient(h, &cur);
-        link(r_lnkDir,  "打开程序目录", PtIn(r_lnkDir, cur));
-        link(r_lnkLog,  "查看日志",     PtIn(r_lnkLog, cur));
-        link(r_lnkCopy, g_aboutCopied.empty() ? "复制版本信息" : g_aboutCopied.c_str(), PtIn(r_lnkCopy, cur));
-        // 主按钮：关于页不给主操作，改为「关闭」
-        bool ph = PtIn(r_btnPrimary, cur);
-        GCard(dc, r_btnPrimary, ph ? CW_SUB : CW_CARD);
-        GTxt(dc, "关闭", r_btnPrimary, CW_TEXT2, L.fBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
+    // v1.6.12：原「关于页」绘制段删除（内联进主窗口「关于」页签）
 
     // 圆角输出：用路径裁剪到圆角矩形，四角露出桌面（与 Win11 圆角窗口一致）
     {
@@ -5325,21 +5138,17 @@ static void PaintUpdateWindow(HWND h) {
     DeleteObject(L.fSmall); DeleteObject(L.fBtn); DeleteObject(L.fMono);
     EndPaint(h, &ps);
 }
-static void OpenUpdateWindow(int tab) {
+static void OpenUpdateWindow() {
     if (g_upd_hwnd) {
-        g_updTab = tab;
-        g_aboutCopied.clear();
         ShowWindow(g_upd_hwnd, SW_SHOW);
         SetForegroundWindow(g_upd_hwnd);
         InvalidateRect(g_upd_hwnd, nullptr, FALSE);
         return;
     }
     RECT wa; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-    // 固定客户区尺寸（三个页签一致），按主窗口缩放系数适配高分屏
-    // 与主窗口（1152 宽）成固定比例：约 74% 宽、73% 高，视觉上是「附属对话框」而非第二个主窗口
-    // 目标约 850×600（在 3K/150% 这类 g_scale≈1.33 的屏上），本质是按 g_scale 等比给出
+    // 固定客户区尺寸，按主窗口缩放系数适配高分屏（v1.6.12：单一反馈页，略收高度更贴表单比例）
     int cw = (int)(640 * g_scale);
-    int ch = (int)(450 * g_scale);
+    int ch = (int)(430 * g_scale);
     int maxW = (int)((wa.right - wa.left) * 0.72f), maxH = (int)((wa.bottom - wa.top) * 0.80f);
     if (cw > maxW) cw = maxW;
     if (ch > maxH) ch = maxH;
@@ -5352,10 +5161,8 @@ static void OpenUpdateWindow(int tab) {
     wc.lpszClassName = L"MonitorOSDUpdate";
     wc.hbrBackground = nullptr;
     RegisterClassExW(&wc);
-    g_updTab = tab;
-    g_aboutCopied.clear();
     // 无边框（WS_POPUP + 自绘标题栏）。不去任务栏按钮，Alt+Tab 可切；阴影交给 DWM。
-    g_upd_hwnd = CreateWindowExW(WS_EX_APPWINDOW, L"MonitorOSDUpdate", L"MonitorOSD · 更新与反馈",
+    g_upd_hwnd = CreateWindowExW(WS_EX_APPWINDOW, L"MonitorOSDUpdate", L"MonitorOSD · 意见反馈",
                                  WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
                                  x, y, cw, ch, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!g_upd_hwnd) return;
@@ -5418,10 +5225,6 @@ static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         LayoutUpdateWindow(h);
         InvalidateRect(h, nullptr, FALSE);
         return 0;
-    case WM_USER + 7:
-        // 页签切换：窗口尺寸固定，只重绘（不再按内容改高度）
-        InvalidateRect(h, nullptr, FALSE);
-        return 0;
     case WM_NCHITTEST: {
         // 无边框窗口：自己判断命中——边缘 6px 可拉伸，标题栏可拖拽
         POINT sp = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
@@ -5447,14 +5250,10 @@ static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_APP + 21:          // 反馈提交结果
         RefreshUpdWindow();
         return 0;
-    case WM_TIMER:
-        if (wp == 90) { KillTimer(h, 90); g_aboutCopied.clear(); RefreshUpdWindow(); }
-        return 0;
     case WM_SETCURSOR: {
         POINT pt; GetCursorPos(&pt); ScreenToClient(h, &pt);
-        bool edit = g_updTab == 1 && (PtIn(r_editFb, pt) || PtIn(r_editLog, pt));
-        bool link = g_updTab == 2 && (PtIn(r_lnkDir, pt) || PtIn(r_lnkLog, pt) || PtIn(r_lnkCopy, pt));
-        SetCursor(LoadCursorW(nullptr, edit ? (LPCWSTR)IDC_IBEAM : link ? (LPCWSTR)IDC_HAND : (LPCWSTR)IDC_ARROW));
+        bool edit = PtIn(r_editFb, pt) || PtIn(r_editLog, pt);
+        SetCursor(LoadCursorW(nullptr, edit ? (LPCWSTR)IDC_IBEAM : (LPCWSTR)IDC_ARROW));
         return TRUE;
     }
     case WM_MOUSEMOVE: {
@@ -5462,18 +5261,8 @@ static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         static POINT s_last = { -9999, -9999 };
         auto zone = [&](POINT p) -> int {
-            for (int i = 0; i < 3; i++) if (PtIn(r_tab[i], p)) return 10 + i;
-            if (g_updTab == 0 && (PtIn(r_btnPrimary, p) || PtIn(r_btnSecondary, p))) return 20;
-            if (g_updTab == 1) {
-                if (PtIn(r_chkLog, p)) return 33;
-                if (PtIn(r_btnPrimary, p) || PtIn(r_btnSecondary, p)) return 34;
-            }
-            if (g_updTab == 2) {
-                if (PtIn(r_lnkDir, p)) return 40;
-                if (PtIn(r_lnkLog, p)) return 41;
-                if (PtIn(r_lnkCopy, p)) return 42;
-                if (PtIn(r_btnPrimary, p)) return 43;
-            }
+            if (PtIn(r_chkLog, p)) return 33;
+            if (PtIn(r_btnPrimary, p) || PtIn(r_btnSecondary, p)) return 34;
             return 0;
         };
         int a = zone(pt), b = zone(s_last);
@@ -5513,12 +5302,6 @@ static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) { DestroyWindow(h); return 0; }
-        if (wp == VK_TAB) {
-            g_updTab = (g_updTab + 1) % 3; g_aboutCopied.clear();
-            PostMessageW(h, WM_USER + 7, 0, 0);
-            RefreshUpdWindow();
-            return 0;
-        }
         if (wp == VK_RETURN) {
             if (g_fbLogFocus) InsertAt(g_fbLogInput, "\n", 4000);
             else if (g_fbFocus) InsertAt(g_fbText, "\n", 4000);
@@ -5530,71 +5313,23 @@ static LRESULT CALLBACK UpdWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         if (PtIn(r_btnClose, pt)) { DestroyWindow(h); return 0; }
         if (PtIn(r_btnMin, pt))   { ShowWindow(h, SW_MINIMIZE); return 0; }
-        for (int i = 0; i < 3; i++)
-            if (PtIn(r_tab[i], pt)) {
-                if (g_updTab != i) { g_updTab = i; g_aboutCopied.clear(); PostMessageW(h, WM_USER + 7, 0, 0); }
+        // v1.6.12：页签点击/关于页链接/更新中心按钮分支已随页签移除，只处理反馈交互
+        if (PtIn(r_chkLog, pt)) { g_fbWithLog = !g_fbWithLog; RefreshUpdWindow(); return 0; }
+        if (PtIn(r_editFb, pt)) { g_fbFocus = true; g_fbLogFocus = false; RefreshUpdWindow(); return 0; }
+        if (PtIn(r_editLog, pt)) { g_fbLogFocus = true; g_fbFocus = false; RefreshUpdWindow(); return 0; }
+        if (PtIn(r_btnPrimary, pt)) {
+            if (g_fbText.size() < 4) {
+                EnterCriticalSection(&g_netCs); g_upd.feedbackState = "请先填写问题描述（至少 4 个字）"; LeaveCriticalSection(&g_netCs);
                 RefreshUpdWindow();
                 return 0;
             }
-        if (g_updTab == 2) {
-            // 关于页：三个链接 + 关闭
-            if (PtIn(r_lnkDir, pt)) {
-                ShellExecuteW(nullptr, L"open", Utf8ToWide(ExeDir()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                return 0;
-            }
-            if (PtIn(r_lnkLog, pt)) {
-                std::string lp = ExeDir() + "\\log.txt";
-                if (GetFileAttributesW(Utf8ToWide(lp).c_str()) != INVALID_FILE_ATTRIBUTES)
-                    ShellExecuteW(nullptr, L"open", Utf8ToWide(lp).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                else MessageBoxW(h, L"还没有日志文件（程序刚启动或本次未产生记录）。", L"MonitorOSD", MB_OK | MB_ICONINFORMATION);
-                return 0;
-            }
-            if (PtIn(r_lnkCopy, pt)) {
-                ClipPutText(h, CopyableInfo());
-                g_aboutCopied = "已复制";
-                RefreshUpdWindow();
-                SetTimer(h, 90, 1600, nullptr);   // 1.6s 后恢复文案
-                return 0;
-            }
-            if (PtIn(r_btnPrimary, pt)) { DestroyWindow(h); return 0; }
+            EnterCriticalSection(&g_netCs); g_upd.feedbackState = "正在提交…"; LeaveCriticalSection(&g_netCs);
+            SubmitFeedbackAsync(g_fbText, g_fbType, g_fbWithLog != 0);
+            RefreshUpdWindow();
             return 0;
         }
-        if (g_updTab == 0) {
-            if (PtIn(r_btnPrimary, pt)) {
-                EnterCriticalSection(&g_netCs);
-                int st = g_upd.state;
-                LeaveCriticalSection(&g_netCs);
-                if (st == UPD_AVAILABLE) StartDownloadAsync();
-                else if (st == UPD_READY) ApplyUpdateAndRestart();
-                else if (st != UPD_CHECKING && st != UPD_DOWNLOADING) CheckUpdateAsync(true);
-                RefreshUpdWindow();
-                return 0;
-            }
-            if (PtIn(r_btnSecondary, pt)) {
-                std::string logp = ExeDir() + "\\update.log";
-                FILE* f = FopenUtf8((char*)logp.c_str(), "rb");
-                if (f) { fclose(f); ShellExecuteW(nullptr, L"open", Utf8ToWide(logp).c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
-                else   ShowToast("暂无更新日志");
-                return 0;
-            }
-        } else if (g_updTab == 1) {
-            if (PtIn(r_chkLog, pt)) { g_fbWithLog = !g_fbWithLog; RefreshUpdWindow(); return 0; }
-            if (PtIn(r_editFb, pt)) { g_fbFocus = true; g_fbLogFocus = false; RefreshUpdWindow(); return 0; }
-            if (PtIn(r_editLog, pt)) { g_fbLogFocus = true; g_fbFocus = false; RefreshUpdWindow(); return 0; }
-            if (PtIn(r_btnPrimary, pt)) {
-                if (g_fbText.size() < 4) {
-                    EnterCriticalSection(&g_netCs); g_upd.feedbackState = "请先填写问题描述（至少 4 个字）"; LeaveCriticalSection(&g_netCs);
-                    RefreshUpdWindow();
-                    return 0;
-                }
-                EnterCriticalSection(&g_netCs); g_upd.feedbackState = "正在提交…"; LeaveCriticalSection(&g_netCs);
-                SubmitFeedbackAsync(g_fbText, g_fbType, g_fbWithLog != 0);
-                RefreshUpdWindow();
-                return 0;
-            }
-            if (PtIn(r_btnSecondary, pt)) { g_fbText.clear(); g_fbLogInput.clear(); RefreshUpdWindow(); return 0; }
-            g_fbFocus = g_fbLogFocus = false;
-        }
+        if (PtIn(r_btnSecondary, pt)) { g_fbText.clear(); g_fbLogInput.clear(); RefreshUpdWindow(); return 0; }
+        g_fbFocus = g_fbLogFocus = false;
         RefreshUpdWindow();
         return 0;
     }
@@ -5740,28 +5475,32 @@ static void SysClick(POINT pt) {
             SaveConfig(); Invalidate();
             return;
         }
-    // ---- 在线更新 / 意见反馈（v1.3）----
-    if (PtIn(g_sys.btnCheckUpd, pt)) {
-        OpenUpdateWindow(0);
-        EnterCriticalSection(&g_netCs);
-        bool busy = g_upd.state == UPD_CHECKING || g_upd.state == UPD_DOWNLOADING;
-        LeaveCriticalSection(&g_netCs);
-        if (!busy) CheckUpdateAsync(true);
-        return;
-    }
-    if (PtIn(g_sys.btnFeedback, pt)) { OpenUpdateWindow(1); return; }
-    if (PtIn(g_sys.btnAbout, pt))    { OpenUpdateWindow(2); return; }
+    // v1.6.12：原「在线更新 / 意见反馈」两按钮点击已删除（卡片移除，入口收拢到「关于」页签）。
 }
 static void StartResetFactory(MonitorDev* m) {
     ShowToast("正在发送恢复出厂指令…");
     std::thread([m]() {
+        // v1.6.8：写后验证——部分固件（如 AOC AGON）对 MCCS 恢复出厂(0x04)无任何响应，
+        // 旧版无条件报成功会误导用户。先读亮度(0x10)留底，写 0x04 → 等 1.5s → 再读比对；
+        // 前后读都成功且值未变 → 判定固件不响应，引导用户改用「一键还原基准」。
+        // v1.6.8 F1 修复：线程持引用——恢复出厂写 0x04 可能触发省电/热插拔→重探→旧对象 Retire，
+        // 本线程总时长（Read+WriteNow×3+WakeUp 重试+Sleep(1500)+Read）可超 3s 宽限期，
+        // 裸指针捕获会访问已释放内存。Guard 构造即 AddRef，任何路径退出都保证 Release（同 6120 行用法）。
+        MonitorDev::Guard guard(m);
+        unsigned b1 = 0, b2 = 0, x1 = 0, x2 = 0;
+        bool hasBefore = m->Read(0x10, b1, x1);
         bool ok = false;
         for (int i = 0; i < 3 && !ok; i++) {
             ok = m->WriteNow(0x04, 0);
             if (!ok) WakeUp(m);
         }
-        PostStatus(ok ? "已发送恢复出厂指令 — 显示器可能进入省电模式，请按显示器按键退出"
-                      : "恢复出厂失败（DDC 无响应）");
+        Sleep(1500);
+        bool hasAfter = m->Read(0x10, b2, x2);
+        if (ok && hasBefore && hasAfter && b1 == b2)
+            PostStatus("显示器未响应出厂重置指令（固件可能不支持远程恢复），建议使用『一键还原基准』恢复参数");
+        else
+            PostStatus(ok ? "已发送恢复出厂指令 — 显示器可能进入省电模式，请按显示器按键退出"
+                          : "恢复出厂失败（DDC 无响应）");
     }).detach();
 }
 static void PaintConfirmReset() {
@@ -5784,6 +5523,9 @@ static void PaintConfirmReset() {
           FUi(SI(12), true), RectF({ lx, card.top + SI(95), rx, card.top + SI(116) }), Theme::Danger);
     DrawT("需要手动按显示器按钮退出省电/节能模式",
           FUi(SI(12), true), RectF({ lx, card.top + SI(116), rx, card.top + SI(137) }), Theme::Danger);
+    // v1.6.8：部分固件（如 AOC）对远程恢复出厂无响应，提前给出替代路径
+    DrawT("部分品牌固件不支持远程恢复出厂，无效时请用『一键还原基准』",
+          FUi(SI(11)), RectF({ lx, card.top + SI(160), rx, card.top + SI(180) }), Theme::TextMuted);
     int by = card.bottom - SI(44);
     g_confirmYes = { rx - SI(112), by, rx, by + SI(30) };
     g_confirmNo  = { g_confirmYes.left - SI(10) - SI(88), by, g_confirmYes.left - SI(10), by + SI(30) };
@@ -5844,6 +5586,154 @@ static void PaintAmbient(ID2D1RenderTarget* rt, float w, float h) {
     }
     gs->Release();
 }
+// ================= 关于页（v1.6.8：主窗口第三页签） =================
+// 布局沿用「先算矩形后绘制、命中矩形存全局」的模式：按钮矩形写 g_aboutBtnUpd/g_aboutBtnFb，
+// WndProc 里 PtIn 命中后调 OpenUpdateWindow——与系统管理页 SysClick 同一套路。
+static void PaintAboutTab() {
+    // v1.6.11：内联原更新弹窗内容——软件更新（四宫格/说明/进度/主按钮）、意见反馈入口、
+    // 关于信息（版本/链接/作者）已内联主窗口「关于」页签。反馈表单含自绘文本框仍走弹窗（OpenUpdateWindow()）。
+    int x = SI(196), cw = g_contentW;
+    int y = SI(76);
+    const int gap = SI(16);
+
+    EnterCriticalSection(&g_netCs);
+    int ustate = g_upd.state, uprog = g_upd.progress;
+    std::string umsg = g_upd.msg;
+    UpdateInfo ui = g_upd.info;
+    LeaveCriticalSection(&g_netCs);
+
+    // ---- 卡1：软件更新（内联原「更新中心」页签）----
+    const int h1 = SI(268);
+    RECT card1 = { x, y, x + cw, y + h1 };
+    FillRRect(card1, 12.f, Theme::SurfaceGroup);
+    int ix = x + SI(14), iw = cw - SI(28);
+    int ry = y + SI(8);
+    DrawT("软件更新", FUi(SI(12), true),
+          RectF({ ix, ry, ix + iw, ry + SI(20) }), Theme::TextPrimary);
+    ry += SI(20);
+    // 状态行：空闲显版本；检查/下载/出错时显状态文案（与弹窗同一 msg 源）
+    {
+        Col mc = (ustate == UPD_ERROR) ? Theme::Danger : Theme::TextMuted;
+        std::string line = umsg.empty() ? std::string("当前版本 v") + kAppVersion : umsg;
+        DrawT(line, FUi(SI(11)), RectF({ ix, ry, ix + iw, ry + SI(16) }), mc);
+    }
+    ry += SI(18);
+    // 进度条：活动状态才显示（预留高度固定，防布局跳动）
+    if (ustate == UPD_CHECKING || ustate == UPD_DOWNLOADING || ustate == UPD_READY || ustate == UPD_AVAILABLE) {
+        int pct = ustate == UPD_CHECKING ? 35 : ustate == UPD_DOWNLOADING ? uprog : 100;
+        RECT bar = { ix, ry + SI(2), ix + iw, ry + SI(6) };
+        FillRRect(bar, 2.f, Theme::SurfaceHover);
+        int fw = iw * pct / 100;
+        if (fw > SI(4)) FillRRect({ ix, ry + SI(2), ix + fw, ry + SI(6) }, 2.f, Theme::Accent);
+    }
+    ry += SI(12);
+    // 四宫格：最新版本 / 更新通道 / 安装包大小 / 完整性校验（照搬弹窗数据源）
+    {
+        const char* t[4] = { "最新版本", "更新通道", "安装包大小", "完整性校验" };
+        std::string v[4] = {
+            ui.version.empty() ? "—" : "v" + ui.version,
+            g_config.updateChannel.empty() ? "latest" : g_config.updateChannel,
+            ui.size > 0 ? (std::to_string((long long)((ui.size + 512 * 1024) / 1024 / 1024)) + " MB") : "—",
+            ui.sha256.empty() ? "待服务器提供 SHA-256" : "SHA-256 已就绪"
+        };
+        int gap2 = SI(10), bw = (iw - gap2) / 2, bh = SI(40);
+        for (int i = 0; i < 4; i++) {
+            int bx = ix + (i % 2) * (bw + gap2), byy = ry + (i / 2) * (bh + gap2);
+            FillRRect({ bx, byy, bx + bw, byy + bh }, 8.f, Theme::SurfaceSub);
+            DrawT(t[i], FUi(SI(10)),
+                  RectF({ bx + SI(10), byy + SI(5), bx + bw - SI(10), byy + SI(18) }), Theme::TextMuted);
+            DrawT(v[i], FUi(SI(12), true),
+                  RectF({ bx + SI(10), byy + SI(19), bx + bw - SI(10), byy + bh - SI(4) }), Theme::TextPrimary);
+        }
+        ry += bh * 2 + gap2;
+    }
+    ry += SI(6);
+    // 更新说明
+    {
+        int nh = SI(72);
+        FillRRect({ ix, ry, ix + iw, ry + nh }, 8.f, Theme::SurfaceSub);
+        DrawT("更新说明", FUi(SI(10)),
+              RectF({ ix + SI(10), ry + SI(6), ix + iw - SI(10), ry + SI(20) }), Theme::TextMuted);
+        std::string notes;
+        if (ui.notes.empty()) notes = "—";
+        else for (auto& n : ui.notes) notes += "• " + n + "\r\n";
+        DrawT(notes, FUi(SI(11)),
+              RectF({ ix + SI(10), ry + SI(22), ix + iw - SI(10), ry + nh - SI(6) }), Theme::TextSecondary);
+        ry += nh + SI(8);
+    }
+    // 按钮行：主按钮（状态机文案，有更新时 accent 高亮）+ 查看更新日志
+    {
+        bool hot = (ustate == UPD_AVAILABLE || ustate == UPD_READY);
+        const char* pl = ustate == UPD_AVAILABLE ? "立即更新" : ustate == UPD_READY ? "重启并完成更新"
+                       : ustate == UPD_CHECKING ? "检查中…" : ustate == UPD_DOWNLOADING ? "下载中…" : "检查更新";
+        int bw1 = (std::max)(SI(120), (int)MeasureW(pl, FUi(SI(12), true)) + SI(28));
+        g_aboutBtnUpd = { ix, ry, ix + bw1, ry + SI(30) };
+        int bw2 = (std::max)(SI(110), (int)MeasureW("查看更新日志", FUi(SI(12), true)) + SI(26));
+        g_aboutBtnLog = { g_aboutBtnUpd.right + SI(12), ry, g_aboutBtnUpd.right + SI(12) + bw2, ry + SI(30) };
+        if (hot) {
+            FillRRect(g_aboutBtnUpd, 8.f, Theme::Accent);
+            DrawT(pl, FUi(SI(12), true, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+                  RectF(g_aboutBtnUpd), Col(1, 1, 1, 1));
+        } else {
+            DrawBtn(g_aboutBtnUpd, pl, false);
+        }
+        DrawBtn(g_aboutBtnLog, "查看更新日志", false);
+        ry += SI(30);
+    }
+    y += h1 + gap;
+
+    // ---- 卡2：意见反馈（表单含自绘文本框，仍走弹窗）----
+    {
+        int h2 = SI(64);
+        RECT card2 = { x, y, x + cw, y + h2 };
+        FillRRect(card2, 12.f, Theme::SurfaceGroup);
+        DrawT("意见反馈", FUi(SI(12), true),
+              RectF({ x + SI(14), y + SI(8), x + cw - SI(170), y + SI(28) }), Theme::TextPrimary);
+        DrawT("遇到问题或想提建议？告诉我们（可自动附带上运行日志）", FUi(SI(11)),
+              RectF({ x + SI(14), y + SI(32), x + cw - SI(170), y + SI(50) }), Theme::TextMuted);
+        int bw = (std::max)(SI(110), (int)MeasureW("打开反馈窗口", FUi(SI(12), true)) + SI(26));
+        g_aboutBtnFb = { x + cw - SI(14) - bw, y + SI(17), x + cw - SI(14), y + SI(47) };
+        DrawBtn(g_aboutBtnFb, "打开反馈窗口", false);
+        y += h2 + gap;
+    }
+
+    // ---- 卡3：关于 ----
+    {
+        int h3 = SI(140);
+        RECT card3 = { x, y, x + cw, y + h3 };
+        FillRRect(card3, 12.f, Theme::SurfaceGroup);
+        int ix3 = x + SI(14), iw3 = cw - SI(28);
+        int ry3 = y + SI(8);
+        DrawT("关于", FUi(SI(12), true),
+              RectF({ ix3, ry3, ix3 + iw3, ry3 + SI(20) }), Theme::TextPrimary);
+        ry3 += SI(20);
+        DrawT(std::string(AppDisplayName()) + " v" + kAppVersion, FUi(SI(18), true),
+              RectF({ ix3, ry3, ix3 + iw3, ry3 + SI(28) }), Theme::TextPrimary);
+        ry3 += SI(28);
+        {
+            std::string meta = std::string("更新通道 ") + (g_config.updateChannel.empty() ? "latest" : g_config.updateChannel.c_str())
+                             + " · 作者 " + kAuthorName;
+            DrawT(meta, FUi(SI(11)),
+                  RectF({ ix3, ry3, ix3 + iw3, ry3 + SI(16) }), Theme::TextMuted);
+        }
+        ry3 += SI(22);
+        int lx = ix3;
+        auto linkBtn = [&](RECT& r, const char* label) {
+            int w = (std::max)(SI(96), (int)MeasureW(label, FUi(SI(11), true)) + SI(24));
+            r = { lx, ry3, lx + w, ry3 + SI(26) };
+            DrawBtn(r, label, false);
+            lx = r.right + SI(10);
+        };
+        linkBtn(g_aboutLnkDir, "打开程序目录");
+        linkBtn(g_aboutLnkLog, "查看日志");
+        linkBtn(g_aboutLnkCopy, g_aboutCopied.empty() ? "复制版本信息" : g_aboutCopied.c_str());
+        y += h3 + gap;
+    }
+
+    // ---- 底部落款 ----
+    DrawT("Copyright (C) 2026 咸鱼工作室 · 纪念那些在深夜里依然亮着的屏幕。",
+          FUi(SI(11)), RectF({ x, y, x + cw, y + SI(20) }), Theme::TextMuted);
+}
 static void PaintFrame() {
     if (!g_rt) CreateDeviceResources();
     if (!g_rt) return;
@@ -5883,6 +5773,7 @@ static void PaintFrame() {
         PaintContent();
         g_rt->PopAxisAlignedClip();
     }
+    else if (g_page == 2) { PaintTopButtons(); PaintAboutTab(); }   // v1.6.8：关于页，一键还原按钮照常可用
     else PaintSystemPage();
     PaintStatusBar();
     PaintToast();
@@ -6260,6 +6151,16 @@ static void ProbeMonitor(MonitorDev* m) {
         }
     }
 }
+// v1.6.9：富足判定阈值 = 菜单 leaf 码数（原固定 20：菜单只有约 12 个 leaf 码，
+// 无缓存冷启动的二轮判定永远不满足，退化成每次启动都全码探测）。
+// 旧缓存（约 50 码）⊇ 菜单码 → 照样命中富足，向后兼容。
+static size_t MenuLeafCount(int brand) {
+    size_t n = 0;
+    for (auto& G : BuildMenu(brand))
+        for (auto& it : G.items)
+            if (it.mapId) n++;
+    return n;
+}
 static void StartProbe() {
     if (g_config.restoreOnStart)
         std::thread([]() { RestoreAllInternal(); }).detach();
@@ -6297,7 +6198,7 @@ static void StartProbe() {
         bool allRich = !mons->empty();
         for (auto* m : *mons) {
             std::lock_guard<std::recursive_mutex> il(m->infoMx);
-            if (m->cache.size() < 20) { allRich = false; break; }
+            if (m->cache.size() < MenuLeafCount(m->brand)) { allRich = false; break; }   // v1.6.9：自适应阈值
         }
         if (allRich) g_probing = false;
         LogLine("探测: 列表就绪（EDID/缓存完成）");
@@ -6307,12 +6208,15 @@ static void StartProbe() {
         //    用户中途关程序也不丢已确认的数据
         SaveDdcCacheAll(*mons);
         for (auto* m : *mons) {
-            if (!m->capsOk) LoadCapsBounded(m, 6000);   // caps 挂起机型看门狗：最多等 6s（挂起线程分离，结果稍后自行写入）
-            // v1.6.4 提速：缓存命中（全码值 ≥20 项已存）跳过 ProbeMonitor 全码重读——
+            // v1.6.9 时序：菜单码探测先行、caps 随后纯后台——本机固件 caps 单次请求可占住
+            // DDC 总线数秒，若先发起 caps 查询，ProbeMonitor 的菜单码读值会被总线阻塞，
+            // 界面全量可用被拖到 5s+。菜单码仅约 12 个（≈1s），读完即深探测完成、界面全量；
+            // caps/声明码补读全部留在后台（AfterCapsReady 收尾），对界面无感知。
+            // v1.6.4 提速：缓存命中（全码值已覆盖全部菜单 leaf 码）跳过 ProbeMonitor 全码重读——
             // 50+ 码 × 61ms 串行读会饿死 UI 线程（转圈冻结数秒才出主界面），且值本来就在缓存里。
             // 实时变化由 3 秒后台轮询继续跟随；无缓存/缓存不完整仍走全码探测。
             bool cacheRich = false;
-            { std::lock_guard<std::recursive_mutex> il(m->infoMx); cacheRich = m->cache.size() >= 20; }
+            { std::lock_guard<std::recursive_mutex> il(m->infoMx); cacheRich = m->cache.size() >= MenuLeafCount(m->brand); }   // v1.6.9：自适应阈值
             if (cacheRich) {
                 LogLine("探测: 缓存命中跳过全码重读（" + MonitorKey(m) + "）");
                 // 存活验证：一次 0x10 读（61ms）代替 50+ 次全码读——缓存不代表 DDC 活着
@@ -6320,9 +6224,11 @@ static void StartProbe() {
                 unsigned c = 0, x = 0;
                 if (m->Read(0x10, c, x)) m->ddcOk = true;
                 else { WakeUp(m); if (m->Read(0x10, c, x)) m->ddcOk = true; }
+                if (!m->capsOk) LoadCapsAsync(m);   // 缓存富足仍照常后台补 caps（capsFromCache 不算实测）
                 continue;
             }
-            ProbeMonitor(m);               // 静默校准：刷新各码现值与上限
+            ProbeMonitor(m);               // 静默校准：刷新各码现值与上限（菜单码 ∪ 当时已知的 supported）
+            if (!m->capsOk) LoadCapsAsync(m);   // v1.6.9：菜单码读完后再发起 caps 后台查询（不与深探测抢总线）
         }
         SaveDdcCacheAll(*mons);            // ② 深探测完成后最终回写
         PostMessageW(g_hwnd, WM_APP + 6, (WPARAM)gen, 0);   // 深探测完成：带代数，界面据此丢弃过期信号
@@ -7481,7 +7387,7 @@ static HRESULT TestPaint() {
             "显示器文字清晰度测试 0123456789",
             "网吧电竞专用 ABCDEFGHIJKLMN",
             "The quick brown fox jumps over the lazy dog 0123456789",
-            "纪念那些在深夜里依然亮着的屏幕。——金橙电竞",
+            "纪念那些在深夜里依然亮着的屏幕。",
         };
         float sizes[] = { 28.f, 22.f, 17.f, 14.f, 11.f, 9.f };
         float y = H * 0.08f;
@@ -7713,6 +7619,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp == DBT_DEVNODES_CHANGED && !g_probing) { SetTimer(h, 7, 3000, nullptr); }
         return 0;
     case WM_TIMER: {
+        if (wp == 90) {   // v1.6.11 关于页「复制版本信息」回执文案恢复
+            KillTimer(h, 90);
+            g_aboutCopied.clear();
+            InvalidateRect(h, nullptr, FALSE);
+            return 0;
+        }
         if (wp == 7) {   // 显示环境变化重探（延迟合并）
             KillTimer(h, 7);
             if (g_probing && !g_deepDone) {
@@ -7976,6 +7888,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         }
         if (PtIn(g_tabP, pt)) { g_page = 0; g_draggingSlider = false; g_dragItem = nullptr; LayoutAll(); Invalidate(); return 0; }
         if (PtIn(g_tabS, pt)) { g_page = 1; g_draggingSlider = false; g_dragItem = nullptr; LayoutAll(); Invalidate(); return 0; }
+        if (PtIn(g_tabA, pt)) { g_page = 2; g_draggingSlider = false; g_dragItem = nullptr; LayoutAll(); Invalidate(); return 0; }   // v1.6.8
         // 显示器卡（两个页签通用）：切换选中 / 分辨率刷新率下拉 / 详细信息
         auto* m = HitMon(pt);
         if (m && m != g_cur) { g_cur = m; ApplyMonitor(); return 0; }
@@ -8030,6 +7943,46 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                     if (PtIn(wide, pt)) { SliderSetFromX(it, it->trackR, pt.x); return 0; }
                 }
             }
+        } else if (g_page == 2) {
+            // v1.6.8 关于页：一键还原按钮照常可用。
+            // v1.6.11：更新中心内联进关于页——主按钮走状态机（检查/下载/重启安装），不再弹窗。
+            if (PtIn(g_btnRestore, pt)) { g_pressRect = g_btnRestore; RestoreWorker(); Invalidate(); return 0; }
+            if (PtIn(g_aboutBtnUpd, pt)) {
+                EnterCriticalSection(&g_netCs);
+                int st = g_upd.state;
+                LeaveCriticalSection(&g_netCs);
+                if (st == UPD_AVAILABLE)      StartDownloadAsync();
+                else if (st == UPD_READY)     ApplyUpdateAndRestart();
+                else if (st != UPD_CHECKING && st != UPD_DOWNLOADING) CheckUpdateAsync(true);
+                Invalidate();
+                return 0;
+            }
+            if (PtIn(g_aboutBtnLog, pt)) {
+                std::string logp = ExeDir() + "\\update.log";
+                FILE* f = FopenUtf8((char*)logp.c_str(), "rb");
+                if (f) { fclose(f); ShellExecuteW(nullptr, L"open", Utf8ToWide(logp).c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
+                else   ShowToast("暂无更新日志");
+                return 0;
+            }
+            if (PtIn(g_aboutBtnFb, pt)) { OpenUpdateWindow(); return 0; }
+            if (PtIn(g_aboutLnkDir, pt)) {
+                ShellExecuteW(nullptr, L"open", Utf8ToWide(ExeDir()).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                return 0;
+            }
+            if (PtIn(g_aboutLnkLog, pt)) {
+                std::string lp = ExeDir() + "\\log.txt";
+                if (GetFileAttributesW(Utf8ToWide(lp).c_str()) != INVALID_FILE_ATTRIBUTES)
+                    ShellExecuteW(nullptr, L"open", Utf8ToWide(lp).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                else ShowToast("还没有日志文件（程序刚启动或本次未产生记录）");
+                return 0;
+            }
+            if (PtIn(g_aboutLnkCopy, pt)) {
+                ClipPutText(h, CopyableInfo());
+                g_aboutCopied = "已复制";
+                SetTimer(h, 90, 1600, nullptr);   // 1.6s 后恢复文案（WM_TIMER 90）
+                Invalidate();
+                return 0;
+            }
         } else {
             SysClick(pt);   // 系统管理页（三卡）
         }
@@ -8055,6 +8008,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         break;
+    case WM_APP + 20:   // v1.6.11：更新状态变化（工作线程）——关于页内联更新中心需实时刷新
+    case WM_APP + 21:   // 反馈提交结果
+        if (g_page == 2) InvalidateRect(h, nullptr, FALSE);
+        return 0;
     case WM_ACTIVATE:
         if (LOWORD(wp) != WA_INACTIVE && !g_probing && g_cur && g_cur->ddcOk)
             RefreshAllValues();   // 切回窗口时同步显示器真实状态
@@ -8110,8 +8067,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 g_statusDot = Theme::Danger;
                 g_statusText = "DDC/CI 不可用（显示器未响应，请确认已在 OSD 中开启 DDC/CI）";
             }
-            LogLine(std::string("探测: 深探测完成 ddc=") + (g_cur->ddcOk ? "OK" : "FAIL") +
-                    " caps=" + (g_cur->capsOk ? "OK" : "FAIL"));
+            // v1.6.9：caps 已改纯后台查询，深探测完成时 caps 可能仍在后台——措辞如实区分
+            LogLine(std::string("探测: 深探测完成（菜单码）ddc=") + (g_cur->ddcOk ? "OK" : "FAIL") +
+                    (g_cur->capsOk ? " caps=OK" : " caps=后台中"));
         }
         if (g_cur) ApplyMonitor(); else LayoutAll();
         InvalidateRect(h, nullptr, FALSE);
@@ -8303,17 +8261,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     if (CliHas(L"/restore")){ CliRestore(); return 0; }
     if (CliHas(L"/checkupdate")) { CliCheckUpdate(); return 0; }
     if (CliHas(L"/selftest"))   { CliSelfTest(); return 0; }
-    // 调试/截图用：/uiupdate <0|1|2> 直接打开更新窗口（不进主界面），便于自动化核对排版
+    // 调试/截图用：/uiupdate 直接打开反馈窗口（不进主界面），便于自动化核对排版
+    // （v1.6.12：窗口精简为单一反馈页，参数已废弃，保留开关本身兼容旧脚本）
     if (CliHas(L"/uiupdate")) {
-        int tab = 0;
-        int ui = CliIndexOf(L"/uiupdate");
-        if (ui >= 0 && ui + 1 < (int)g_cliArgs.size()) tab = _wtoi(g_cliArgs[ui + 1].c_str());
-        if (tab < 0 || tab > 2) tab = 0;
         if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_d2f))) return 1;
         if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&g_dwf))) return 1;
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         LoadFonts();
-        OpenUpdateWindow(tab);
+        OpenUpdateWindow();
         MSG m2;
         while (GetMessageW(&m2, nullptr, 0, 0)) { TranslateMessage(&m2); DispatchMessageW(&m2); }
         return 0;

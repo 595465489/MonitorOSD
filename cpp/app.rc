@@ -7,7 +7,7 @@
 1 ICON "app.ico"
 
 #ifndef APP_VERSION
-#define APP_VERSION "1.6.6"
+#define APP_VERSION "1.6.12"
 #endif
 // 数字版本（FILEVERSION）不能是字符串，构建时用 /d 分开注入；缺省按 1.6.4
 // 注意：这三处必须与 main.cpp 的 APP_VERSION 同步，否则资源管理器看到的版本会与程序内不一致
@@ -18,7 +18,7 @@
 #define APP_VER_MIN 6
 #endif
 #ifndef APP_VER_PAT
-#define APP_VER_PAT 6
+#define APP_VER_PAT 12
 #endif
 
 VS_VERSION_INFO VERSIONINFO
@@ -35,11 +35,11 @@ BEGIN
         BLOCK "080404b0"
         BEGIN
             VALUE "CompanyName",      "咸鱼工作室"
-            VALUE "FileDescription",  "金橙电竞-显示器控制"
+            VALUE "FileDescription",  "显示器控制"
             VALUE "FileVersion",      APP_VERSION
             VALUE "InternalName",     "MonitorOSD"
-            VALUE "OriginalFilename", "金橙电竞-显示器控制.exe"
-            VALUE "ProductName",      "金橙电竞-显示器控制 (MonitorOSD)"
+            VALUE "OriginalFilename", "显示器控制.exe"
+            VALUE "ProductName",      "显示器控制 (MonitorOSD)"
             VALUE "ProductVersion",   APP_VERSION
             VALUE "LegalCopyright",   "Copyright (C) 2026 咸鱼工作室"
         END
